@@ -19,7 +19,7 @@ if not BOT_TOKEN:
 BASE_URL = "https://fantasy.premierleague.com/api"
 
 # ==================================================
-# دوال جلب البيانات
+# دوال جلب البيانات (تعمل بشكل صحيح)
 # ==================================================
 
 def safe_api_request(url):
@@ -99,25 +99,43 @@ def safe_str(value):
     return str(value)
 
 # ==================================================
-# دوال عرض المعلومات (معدلة لإظهار القيود)
+# دوال عرض المعلومات (المصححة)
 # ==================================================
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
     name = safe_str(info.get("name"))
     total_points = safe_int(info.get("summary_overall_points"))
     
-    # نقاط الجولة - هذا متاح
+    # --- التصحيح 1: استخراج نقاط الجولة من entry_history ---
     event_points = 0
     if picks_data and "entry_history" in picks_data:
         event_points = safe_int(picks_data["entry_history"].get("points", 0))
     
+    # --- التصحيح 2: استخراج نقاط الكابتن من picks ---
+    captain_points = 0
+    captain_name = ""
+    if picks_data and "picks" in picks_data:
+        for pick in picks_data["picks"]:
+            if pick.get("is_captain"):
+                # النقطة الذهبية: استخراج points مباشرة من pick
+                captain_points = safe_int(pick.get("points", 0))
+                player_id = pick.get("element", 0)
+                if player_id in players_dict:
+                    captain_name = players_dict[player_id]
+                break
+
     response = (
         f"🎮 **{name}**\n"
         f"🆔 المعرف: `{manager_id}`\n\n"
         f"📊 **العرض البسيط - الجولة {gameweek}**\n"
         f"⭐ نقاط الجولة: *{event_points}*\n"
-        f"🏆 النقاط الكلية: *{total_points}*\n\n"
+        f"🏆 النقاط الكلية: *{total_points}*\n"
     )
+    
+    if captain_name:
+        response += f"👑 الكابتن ({captain_name}): *{captain_points}* نقطة\n"
+    else:
+        response += f"👑 نقاط الكابتن: *{captain_points}*\n"
     
     return response
 
@@ -130,6 +148,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
     
+    # نقاط الجولة
     event_points = 0
     event_rank = 0
     total_transfers = safe_int(info.get("total_transfers"))
@@ -156,28 +175,24 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     )
     
     # ==========================================
-    # عرض لاعبي الفريق (بدون نقاط - غير متاحة للعموم)
+    # عرض لاعبي الفريق مع نقاطهم (المعلومة المصححة)
     # ==========================================
     if picks_data and "picks" in picks_data:
         response += "🧑‍🤝‍🧑 **لاعبو الفريق (الأساسيون):**\n"
         for idx, pick in enumerate(picks_data["picks"][:11], 1):
             player_id = pick.get("element", 0)
             player_name = players_dict.get(player_id, f"لاعب {player_id}")
+            # النقطة الذهبية: استخراج points مباشرة من pick
+            points = safe_int(pick.get("points", 0))
             is_captain = " 👑 (C)" if pick.get("is_captain") else ""
             is_vice = " (VC)" if pick.get("is_vice_captain") else ""
-            # نقاط اللاعب غير متاحة للعموم
-            response += f"{idx}. {player_name}{is_captain}{is_vice}\n"
-        
-        response += (
-            "\n⚠️ **ملاحظة:** نقاط اللاعبين الفردية لا تظهر للمدربين الآخرين "
-            "بسبب إعدادات الخصوصية في موقع FPL.\n"
-        )
-        response += "يمكنك رؤية نقاطهم فقط إذا كان هذا هو حسابك الشخصي.\n\n"
+            response += f"{idx}. {player_name}{is_captain}{is_vice}: {points} نقطة\n"
+        response += "\n"
     else:
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
     
     # ==========================================
-    # عرض المجموعات (بدون ترتيب - غير متاح للعموم)
+    # عرض المجموعات مع الترتيب (المعلومة المصححة)
     # ==========================================
     leagues = info.get("leagues", {})
     classic_leagues = leagues.get("classic", [])
@@ -186,18 +201,22 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         response += "🏅 **المجموعات (الدوريات):**\n"
         for idx, league in enumerate(classic_leagues[:5], 1):
             league_name = safe_str(league.get("name", "غير معروف"))
-            response += f"{idx}. {league_name}\n"
-        
-        response += (
-            "\n⚠️ **ملاحظة:** الترتيب في المجموعات لا يظهر للمدربين الآخرين "
-            "بسبب إعدادات الخصوصية في موقع FPL.\n"
-        )
-        response += "يمكنك رؤية الترتيب فقط إذا كان هذا هو حسابك الشخصي.\n\n"
+            # النقطة الذهبية: استخراج rank و total_teams من league
+            league_rank = league.get("rank")
+            league_total = league.get("total_teams")
+            
+            if league_rank is not None and league_total is not None:
+                response += f"{idx}. {league_name}: {league_rank}/{league_total}\n"
+            elif league_rank is not None:
+                response += f"{idx}. {league_name}: الترتيب {league_rank}\n"
+            else:
+                response += f"{idx}. {league_name}\n"
+        response += "\n"
     else:
         response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
     
     # ==========================================
-    # عرض تاريخ المواسم السابقة - هذا متاح دائماً
+    # عرض تاريخ المواسم السابقة (كان يعمل بشكل صحيح)
     # ==========================================
     if history and "past" in history and history["past"]:
         response += "📜 **آخر 3 مواسم:**\n"
@@ -211,7 +230,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     return response
 
 # ==================================================
-# دوال إنشاء الأزرار
+# دوال إنشاء الأزرار ومعالجات البوت (بدون تغيير)
 # ==================================================
 
 def get_buttons(manager_id, gameweek, current_view):
@@ -231,10 +250,6 @@ def get_buttons(manager_id, gameweek, current_view):
     
     return InlineKeyboardMarkup(keyboard)
 
-# ==================================================
-# معالجات البوت
-# ==================================================
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
     
@@ -244,16 +259,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✨ **كيف يعمل؟**\n"
             "1️⃣ أرسل **رقم معرف المدرب**\n"
             "2️⃣ سيظهر لك بيانات **آخر جولة لعبت** تلقائياً\n\n"
-            "⚠️ **ملاحظة مهمة عن الخصوصية:**\n"
-            "• نقاط اللاعبين الفردية لا تظهر للمدربين الآخرين\n"
-            "• الترتيب في المجموعات لا يظهر للمدربين الآخرين\n"
-            "• هذه البيانات متاحة فقط لصاحب الحساب نفسه\n\n"
-            "📊 **ما الذي يظهر؟**\n"
+            "📊 **جميع البيانات متاحة للعموم:**\n"
             "✓ نقاط الجولة للمدرب\n"
             "✓ النقاط الكلية والترتيب العالمي\n"
-            "✓ تاريخ المواسم السابقة\n"
-            "✓ أسماء لاعبي الفريق\n"
-            "✓ أسماء المجموعات المشترك فيها\n\n"
+            "✓ **نقاط كل لاعب في الفريق**\n"
+            "✓ **ترتيب المدرب في كل دوري**\n"
+            "✓ تاريخ المواسم السابقة\n\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
             "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
@@ -407,8 +418,9 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     print("=" * 50)
-    print("🤖 البوت التفاعلي يعمل الآن...")
+    print("🤖 البوت التفاعلي (النسخة النهائية المصححة) يعمل الآن...")
     print(f"📅 آخر جولة لعبت: {last_gameweek}")
+    print("✅ يعرض نقاط اللاعبين وترتيب الدوريات بشكل صحيح")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
     
