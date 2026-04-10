@@ -19,93 +19,83 @@ if not BOT_TOKEN:
 # عنوان API الفانتاسي الرسمي
 BASE_URL = "https://fantasy.premierleague.com/api"
 
-# قاموس مؤقت لتخزين بيانات المدربين (لتجنب جلبها كل مرة)
+# قاموس مؤقت لتخزين بيانات المدربين
 cache = {}
 
 # ==================================================
-# دوال جلب البيانات من API
+# دوال جلب البيانات من API مع تحسين معالجة الأخطاء
 # ==================================================
+
+def safe_api_request(url):
+    """تنفيذ طلب API بأمان مع إعادة المحاولة"""
+    for attempt in range(3):
+        try:
+            response = requests.get(url, timeout=30)
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 404:
+                return None
+            else:
+                logging.warning(f"محاولة {attempt+1}: استجابة {response.status_code} من {url}")
+        except Exception as e:
+            logging.warning(f"محاولة {attempt+1} فشلت: {e}")
+    return None
 
 def get_manager_info(manager_id):
     """جلب المعلومات الأساسية لمدرب"""
-    try:
-        url = f"{BASE_URL}/entry/{manager_id}/"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            return response.json()
-        return None
-    except Exception as e:
-        print(f"خطأ في جلب معلومات المدرب: {e}")
-        return None
+    url = f"{BASE_URL}/entry/{manager_id}/"
+    return safe_api_request(url)
 
 def get_manager_history(manager_id):
     """جلب تاريخ المدرب"""
-    try:
-        url = f"{BASE_URL}/entry/{manager_id}/history/"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            return response.json()
-        return None
-    except Exception as e:
-        print(f"خطأ في جلب تاريخ المدرب: {e}")
-        return None
+    url = f"{BASE_URL}/entry/{manager_id}/history/"
+    return safe_api_request(url)
 
 def get_manager_picks(manager_id, gameweek):
     """جلب تشكيلة المدرب في أسبوع معين"""
-    try:
-        url = f"{BASE_URL}/entry/{manager_id}/event/{gameweek}/picks/"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            return response.json()
-        return None
-    except Exception as e:
-        print(f"خطأ في جلب تشكيلة المدرب: {e}")
-        return None
+    url = f"{BASE_URL}/entry/{manager_id}/event/{gameweek}/picks/"
+    result = safe_api_request(url)
+    # بعض المعرفات قد تعيد 404، هذا طبيعي
+    return result
 
 def get_players_data():
     """جلب بيانات جميع اللاعبين لتحويل الأرقام إلى أسماء"""
-    try:
-        url = f"{BASE_URL}/bootstrap-static/"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            players_dict = {}
-            for player in data["elements"]:
-                players_dict[player["id"]] = f"{player['first_name']} {player['second_name']}"
-            return players_dict
-        return {}
-    except Exception as e:
-        print(f"خطأ في جلب بيانات اللاعبين: {e}")
-        return {}
+    url = f"{BASE_URL}/bootstrap-static/"
+    data = safe_api_request(url)
+    if data and "elements" in data:
+        players_dict = {}
+        for player in data["elements"]:
+            players_dict[player["id"]] = f"{player['first_name']} {player['second_name']}"
+        return players_dict
+    return {}
 
 def get_current_gameweek():
     """الحصول على رقم الأسبوع الحالي"""
-    try:
-        url = f"{BASE_URL}/bootstrap-static/"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            for event in data["events"]:
-                if event["is_current"]:
-                    return event["id"]
-        return 1
-    except Exception:
-        return 1
+    url = f"{BASE_URL}/bootstrap-static/"
+    data = safe_api_request(url)
+    if data and "events" in data:
+        for event in data["events"]:
+            if event.get("is_current"):
+                return event["id"]
+        # إذا لم يكن هناك أسبوع حالي، نأخذ أول أسبوع مستقبلي
+        for event in data["events"]:
+            if event.get("is_next"):
+                return event["id"]
+    return 1  # الافتراضي الأسبوع 1
 
 def get_manager_leagues(manager_id):
     """جلب الدوريات التي يشارك فيها المدرب"""
-    try:
-        url = f"{BASE_URL}/entry/{manager_id}/"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            data = response.json()
-            leagues = data.get("leagues", {})
-            classic_leagues = leagues.get("classic", [])
-            # جلب أول 3 دوريات فقط
-            return classic_leagues[:3]
-        return []
-    except Exception:
-        return []
+    info = get_manager_info(manager_id)
+    if info and "leagues" in info:
+        classic_leagues = info["leagues"].get("classic", [])
+        return classic_leagues[:5]  # أول 5 دوريات
+    return []
+
+# تحميل بيانات اللاعبين مرة واحدة
+players_dict = get_players_data()
+current_gameweek = get_current_gameweek()
+print(f"📅 الأسبوع الحالي: {current_gameweek}")
+print(f"👥 تم تحميل بيانات {len(players_dict)} لاعب")
 
 # ==================================================
 # دوال مساعدة
@@ -124,10 +114,6 @@ def safe_str(value):
         return "غير معروف"
     return str(value)
 
-# تحميل بيانات اللاعبين مرتين واحدة
-players_dict = get_players_data()
-current_gameweek = get_current_gameweek()
-
 # ==================================================
 # دوال عرض المعلومات
 # ==================================================
@@ -138,7 +124,7 @@ def format_simple_display(manager_id, info):
     total_points = safe_int(info.get("summary_overall_points"))
     event_points = safe_int(info.get("summary_event_points"))
     
-    # معرفة نقاط الكابتن - نحتاج لجلب التشكيلة
+    # محاولة جلب نقاط الكابتن
     captain_points = 0
     picks_data = get_manager_picks(manager_id, current_gameweek)
     if picks_data and "picks" in picks_data:
@@ -156,11 +142,11 @@ def format_simple_display(manager_id, info):
     )
     return response
 
-def format_detailed_display(manager_id, info, history, leagues, picks_data):
+def format_detailed_display(manager_id, info, history, leagues):
     """تنسيق العرض المفصل"""
     name = safe_str(info.get("name"))
     joined = safe_str(info.get("joined_time", ""))[:10]
-    if joined == "":
+    if joined == "" or joined == "None":
         joined = "غير معروف"
     
     total_points = safe_int(info.get("summary_overall_points"))
@@ -177,14 +163,15 @@ def format_detailed_display(manager_id, info, history, leagues, picks_data):
         f"🆔 المعرف: `{manager_id}`\n"
         f"📅 انضم: {joined}\n\n"
         f"📊 **الإحصائيات الكلية**\n"
-        f"⭐ النقاط الجولة: *{event_points}*\n"
+        f"⭐ نقاط الجولة: *{event_points}*\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"🔄 الانتقالات: *{total_transfers}*\n\n"
     )
     
-    # إضافة معلومات اللاعبين إذا وجدت
-    if picks_data and "picks" in picks_data:
+    # إضافة معلومات اللاعبين (إذا كانت متوفرة)
+    picks_data = get_manager_picks(manager_id, current_gameweek)
+    if picks_data and "picks" in picks_data and players_dict:
         response += "🧑‍🤝‍🧑 **لاعبو الفريق (الأساسيون):**\n"
         for idx, pick in enumerate(picks_data["picks"][:11], 1):
             player_id = pick.get("element", 0)
@@ -194,6 +181,8 @@ def format_detailed_display(manager_id, info, history, leagues, picks_data):
             is_vice = " (VC)" if pick.get("is_vice_captain") else ""
             response += f"{idx}. {player_name}{is_captain}{is_vice}: {points} نقطة\n"
         response += "\n"
+    else:
+        response += "⚠️ معلومات اللاعبين غير متوفرة حالياً.\n\n"
     
     # إضافة ترتيب الدوريات
     if leagues:
@@ -202,7 +191,8 @@ def format_detailed_display(manager_id, info, history, leagues, picks_data):
             league_name = safe_str(league.get("name"))
             league_rank = safe_int(league.get("rank"))
             league_total = safe_int(league.get("total_teams"))
-            response += f"• {league_name}: {league_rank}/{league_total}\n"
+            rank_display = f"{league_rank}" if league_rank > 0 else "غير معروف"
+            response += f"• {league_name}: {rank_display}/{league_total}\n"
         response += "\n"
     
     # إضافة تاريخ المواسم السابقة
@@ -234,19 +224,12 @@ def get_buttons(manager_id, current_view):
 
 async def send_or_update_message(update, context, manager_id, view_type, message_id=None):
     """إرسال أو تحديث رسالة حسب الحالة"""
-    # جلب البيانات من الكاش أو من الـ API
-    if manager_id not in cache:
-        cache[manager_id] = {
-            "info": get_manager_info(manager_id),
-            "history": get_manager_history(manager_id),
-            "leagues": get_manager_leagues(manager_id),
-            "picks": get_manager_picks(manager_id, current_gameweek)
-        }
     
-    data = cache[manager_id]
+    # جلب البيانات الأساسية
+    info = get_manager_info(manager_id)
     
-    if not data["info"]:
-        error_text = f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`."
+    if not info:
+        error_text = f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.\n\nتأكد من صحة المعرف.\nمثال: `2794801`"
         if message_id:
             await context.bot.edit_message_text(
                 text=error_text,
@@ -258,15 +241,18 @@ async def send_or_update_message(update, context, manager_id, view_type, message
             await update.message.reply_text(error_text, parse_mode='Markdown')
         return False
     
+    # جلب البيانات الإضافية حسب الحاجة
+    history = get_manager_history(manager_id) if view_type == "detail" else None
+    leagues = get_manager_leagues(manager_id) if view_type == "detail" else None
+    
     if view_type == "simple":
-        text = format_simple_display(manager_id, data["info"])
+        text = format_simple_display(manager_id, info)
     else:
-        text = format_detailed_display(manager_id, data["info"], data["history"], data["leagues"], data["picks"])
+        text = format_detailed_display(manager_id, info, history, leagues)
     
     reply_markup = get_buttons(manager_id, view_type)
     
     if message_id:
-        # تحديث رسالة موجودة
         await context.bot.edit_message_text(
             text=text,
             chat_id=update.effective_chat.id,
@@ -275,7 +261,6 @@ async def send_or_update_message(update, context, manager_id, view_type, message
             reply_markup=reply_markup
         )
     else:
-        # إرسال رسالة جديدة
         await update.message.reply_text(
             text=text,
             parse_mode='Markdown',
@@ -302,7 +287,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
             "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
-            "📝 **مثال:** أرسل `2794801`",
+            "📝 **مثال:** أرسل `2794801`\n\n"
+            "⚠️ **ملاحظة:** قد يستغرق جلب البيانات بضع ثوانٍ.",
             parse_mode='Markdown'
         )
         return
@@ -319,9 +305,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # إرسال رسالة أولى مع خيارين
+    # التحقق أولاً من وجود المدرب قبل عرض الأزرار
+    await update.message.reply_text(f"🔄 جاري التحقق من المعرف {manager_id}...")
+    
+    info = get_manager_info(manager_id)
+    
+    if not info:
+        await update.message.reply_text(
+            f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.\n\n"
+            "تأكد من صحة المعرف.\n"
+            "يمكنك تجربة: `2794801`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # إذا وجد المدرب، اعرض الأزرار
+    name = safe_str(info.get("name"))
     await update.message.reply_text(
-        f"✅ تم العثور على المدرب! اختر نوع العرض:",
+        f"✅ تم العثور على المدرب **{name}**!\n\nاختر نوع العرض:",
+        parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("📋 عرض بسيط", callback_data=f"simple_{manager_id}"),
@@ -333,21 +335,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة الضغط على الأزرار"""
     query = update.callback_query
-    await query.answer()  # إعلام Telegram أننا استلمنا الضغطة
+    await query.answer()
     
     data = query.data
     message_id = query.message.message_id
     
-    # تحليل البيانات (تنسيق: simple_1234567 أو detail_1234567)
     parts = data.split("_")
     if len(parts) != 2:
         return
     
-    view_type = parts[0]  # "simple" أو "detail"
+    view_type = parts[0]
     manager_id = parts[1]
     
-    # تحديث الرسالة الحالية
-    await send_or_update_message(update, context, manager_id, view_type, message_id)
+    # إظهار مؤقت "جاري التحميل"
+    await query.edit_message_text(
+        text=f"🔄 جاري تحميل { 'العرض البسيط' if view_type == 'simple' else 'العرض المفصل' }...",
+        reply_markup=None
+    )
+    
+    # جلب وعرض البيانات
+    info = get_manager_info(manager_id)
+    
+    if not info:
+        await query.edit_message_text(
+            text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    history = get_manager_history(manager_id) if view_type == "detail" else None
+    leagues = get_manager_leagues(manager_id) if view_type == "detail" else None
+    
+    if view_type == "simple":
+        text = format_simple_display(manager_id, info)
+    else:
+        text = format_detailed_display(manager_id, info, history, leagues)
+    
+    reply_markup = get_buttons(manager_id, view_type)
+    
+    await query.edit_message_text(
+        text=text,
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
 
 # ==================================================
 # تشغيل البوت
@@ -356,14 +386,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # معالج الأوامر
     application.add_handler(CommandHandler("start", handle_message))
     application.add_handler(CommandHandler("help", handle_message))
-    
-    # معالج الرسائل النصية (الأرقام)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # معالج الضغط على الأزرار
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     print("=" * 50)
