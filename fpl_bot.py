@@ -27,17 +27,21 @@ def safe_api_request(url):
     """تنفيذ طلب API بأمان مع إعادة المحاولة"""
     for attempt in range(3):
         try:
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=30, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
             if response.status_code == 200:
                 return response.json()
             elif response.status_code == 404:
                 return None
+            else:
+                logging.warning(f"محاولة {attempt+1}: استجابة {response.status_code} من {url}")
         except Exception as e:
             logging.warning(f"محاولة {attempt+1} فشلت: {e}")
     return None
 
 def get_manager_info(manager_id):
-    """جلب المعلومات الأساسية لمدرب"""
+    """جلب المعلومات الأساسية لمدرب - تشمل معلومات الدوريات"""
     url = f"{BASE_URL}/entry/{manager_id}/"
     return safe_api_request(url)
 
@@ -47,53 +51,46 @@ def get_manager_history(manager_id):
     return safe_api_request(url)
 
 def get_manager_picks(manager_id, gameweek):
-    """جلب تشكيلة المدرب في أسبوع معين"""
+    """جلب تشكيلة المدرب في أسبوع معين - تشمل نقاط الجولة"""
     url = f"{BASE_URL}/entry/{manager_id}/event/{gameweek}/picks/"
     return safe_api_request(url)
 
-def get_manager_leagues(manager_id):
-    """جلب الدوريات التي يشارك فيها المدرب"""
-    info = get_manager_info(manager_id)
-    if info and "leagues" in info:
-        classic_leagues = info["leagues"].get("classic", [])
-        return classic_leagues[:5]
-    return []
-
 def get_players_data():
-    """جلب بيانات جميع اللاعبين"""
+    """جلب بيانات جميع اللاعبين لتحويل الأرقام إلى أسماء"""
     url = f"{BASE_URL}/bootstrap-static/"
     data = safe_api_request(url)
     if data and "elements" in data:
         players_dict = {}
         for player in data["elements"]:
-            players_dict[player["id"]] = f"{player['first_name']} {player['second_name']}"
+            players_dict[player["id"]] = {
+                "name": f"{player['first_name']} {player['second_name']}",
+                "team": player.get("team", 0),
+                "position": player.get("element_type", 0)
+            }
         return players_dict
     return {}
-
-def get_current_gameweek():
-    """الحصول على رقم الأسبوع الحالي"""
-    url = f"{BASE_URL}/bootstrap-static/"
-    data = safe_api_request(url)
-    if data and "events" in data:
-        # البحث عن الجولة الحالية أو آخر جولة لعبت
-        for event in data["events"]:
-            if event.get("is_current"):
-                return event["id"]
-        # إذا لم تكن هناك جولة حالية، نأخذ آخر جولة انتهت
-        for event in reversed(data["events"]):
-            if event.get("finished"):
-                return event["id"]
-    return 1
 
 def get_last_played_gameweek():
     """الحصول على آخر جولة لعبت (منتهية)"""
     url = f"{BASE_URL}/bootstrap-static/"
     data = safe_api_request(url)
     if data and "events" in data:
+        # البحث عن آخر جولة انتهت
         for event in reversed(data["events"]):
             if event.get("finished"):
                 return event["id"]
     return 1
+
+def get_team_name(team_id):
+    """جلب اسم الفريق من معرف الفريق"""
+    teams = {
+        1: "Arsenal", 2: "Aston Villa", 3: "Bournemouth", 4: "Brentford",
+        5: "Brighton", 6: "Chelsea", 7: "Crystal Palace", 8: "Everton",
+        9: "Fulham", 10: "Liverpool", 11: "Luton", 12: "Man City",
+        13: "Man Utd", 14: "Newcastle", 15: "Nott'm Forest", 16: "Sheffield Utd",
+        17: "Spurs", 18: "West Ham", 19: "Wolves", 20: "Burnley"
+    }
+    return teams.get(team_id, f"فريق {team_id}")
 
 # تحميل بيانات اللاعبين مرة واحدة
 players_dict = get_players_data()
@@ -123,19 +120,27 @@ def safe_str(value):
 # ==================================================
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
-    """تنسيق العرض البسيط لجولة محددة"""
+    """تنسيق العرض البسيط لجولة محددة - مع نقاط المدرب"""
     name = safe_str(info.get("name"))
     total_points = safe_int(info.get("summary_overall_points"))
     
-    # نقاط الجولة المحددة من بيانات picks
+    # نقاط الجولة المحددة من entry_history في picks_data
     event_points = 0
     captain_points = 0
+    captain_name = ""
     
     if picks_data and "picks" in picks_data:
-        event_points = safe_int(picks_data.get("entry_history", {}).get("points", 0))
+        # نقاط الجولة تأتي من entry_history
+        entry_history = picks_data.get("entry_history", {})
+        event_points = safe_int(entry_history.get("points", 0))
+        
+        # البحث عن الكابتن ونقاطه
         for pick in picks_data["picks"]:
             if pick.get("is_captain"):
                 captain_points = safe_int(pick.get("points", 0))
+                player_id = pick.get("element", 0)
+                if player_id in players_dict:
+                    captain_name = players_dict[player_id]["name"]
                 break
     
     response = (
@@ -144,12 +149,17 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
         f"📊 **العرض البسيط - الجولة {gameweek}**\n"
         f"⭐ نقاط الجولة {gameweek}: *{event_points}*\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
-        f"👑 نقاط الكابتن: *{captain_points}*\n"
     )
+    
+    if captain_name:
+        response += f"👑 الكابتن ({captain_name}): *{captain_points}* نقطة\n"
+    else:
+        response += f"👑 نقاط الكابتن: *{captain_points}*\n"
+    
     return response
 
-def format_detailed_display(manager_id, info, gameweek, picks_data, history, leagues):
-    """تنسيق العرض المفصل لجولة محددة"""
+def format_detailed_display(manager_id, info, gameweek, picks_data, history):
+    """تنسيق العرض المفصل لجولة محددة - مع المجموعات ونقاط اللاعبين"""
     name = safe_str(info.get("name"))
     joined = safe_str(info.get("joined_time", ""))[:10]
     if joined == "" or joined == "None":
@@ -167,6 +177,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history, lea
         entry_history = picks_data.get("entry_history", {})
         event_points = safe_int(entry_history.get("points", 0))
         event_rank = safe_int(entry_history.get("rank", 0))
+        total_transfers = safe_int(entry_history.get("event_transfers", total_transfers))
     
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
@@ -179,33 +190,67 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history, lea
         f"⭐ نقاط الجولة {gameweek}: *{event_points}*\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
-        f"🔄 الانتقالات: *{total_transfers}*\n\n"
+        f"🔄 انتقالات الجولة: *{total_transfers}*\n"
+        f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
     
-    # إضافة معلومات اللاعبين في هذه الجولة
+    # ==========================================
+    # 1. عرض لاعبي الفريق مع نقاط كل لاعب
+    # ==========================================
     if picks_data and "picks" in picks_data and players_dict:
         response += "🧑‍🤝‍🧑 **لاعبو الفريق (الأساسيون):**\n"
+        response += "┌─────┬──────────────────────────┬────────┬──────┐\n"
+        response += "│  #  │ اللاعب                   │ الفريق │ النقاط│\n"
+        response += "├─────┼──────────────────────────┼────────┼──────┤\n"
+        
         for idx, pick in enumerate(picks_data["picks"][:11], 1):
             player_id = pick.get("element", 0)
-            player_name = players_dict.get(player_id, f"لاعب {player_id}")
+            player_info = players_dict.get(player_id, {"name": f"لاعب {player_id}", "team": 0})
+            player_name = player_info["name"]
+            # تقييد طول الاسم ليتناسب مع الجدول
+            if len(player_name) > 24:
+                player_name = player_name[:21] + "..."
+            
+            team_name = get_team_name(player_info.get("team", 0))
             points = safe_int(pick.get("points", 0))
-            is_captain = " 👑 (C)" if pick.get("is_captain") else ""
-            is_vice = " (VC)" if pick.get("is_vice_captain") else ""
-            response += f"{idx}. {player_name}{is_captain}{is_vice}: {points} نقطة\n"
-        response += "\n"
+            
+            is_captain = " 👑" if pick.get("is_captain") else ""
+            is_vice = " VC" if pick.get("is_vice_captain") else ""
+            
+            response += f"│ {idx:2d} │ {player_name:<24} │ {team_name:<6} │ {points:4d}{is_captain}{is_vice} │\n"
+        
+        response += "└─────┴──────────────────────────┴────────┴──────┘\n\n"
     
-    # إضافة ترتيب الدوريات
-    if leagues:
-        response += "🏅 **الدوريات:**\n"
-        for league in leagues[:3]:
-            league_name = safe_str(league.get("name"))
-            league_rank = safe_int(league.get("rank"))
-            league_total = safe_int(league.get("total_teams"))
-            rank_display = f"{league_rank}" if league_rank > 0 else "غير معروف"
-            response += f"• {league_name}: {rank_display}/{league_total}\n"
-        response += "\n"
+    # ==========================================
+    # 2. عرض المجموعات (الدوريات) التي يشارك فيها المدرب
+    # ==========================================
+    leagues = info.get("leagues", {})
+    classic_leagues = leagues.get("classic", [])
     
-    # إضافة تاريخ المواسم السابقة
+    if classic_leagues:
+        response += "🏅 **المجموعات (الدوريات):**\n"
+        response += "┌────┬──────────────────────────────────┬────────────┬──────────┐\n"
+        response += "│ #  │ اسم المجموعة                     │ ترتيبك     │ عدد الفرق│\n"
+        response += "├────┼──────────────────────────────────┼────────────┼──────────┤\n"
+        
+        for idx, league in enumerate(classic_leagues[:5], 1):
+            league_name = safe_str(league.get("name", "غير معروف"))
+            if len(league_name) > 30:
+                league_name = league_name[:27] + "..."
+            
+            league_rank = safe_int(league.get("rank", 0))
+            league_rank_str = f"{league_rank}" if league_rank > 0 else "غير معروف"
+            league_total = safe_int(league.get("total_teams", 0))
+            
+            response += f"│ {idx:2d} │ {league_name:<30} │ {league_rank_str:^10} │ {league_total:^8} │\n"
+        
+        response += "└────┴──────────────────────────────────┴────────────┴──────────┘\n\n"
+    else:
+        response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
+    
+    # ==========================================
+    # 3. عرض تاريخ المواسم السابقة
+    # ==========================================
     if history and "past" in history and history["past"]:
         response += "📜 **آخر 3 مواسم:**\n"
         for season in history["past"][-3:]:
@@ -236,78 +281,10 @@ def get_buttons(manager_id, gameweek, current_view, min_gameweek=1):
     row2 = []
     if gameweek > min_gameweek:
         row2.append(InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{gameweek-1}"))
-    # عرض رقم الجولة الحالية
     row2.append(InlineKeyboardButton(f"📅 جولة {gameweek}", callback_data="ignore"))
     keyboard.append(row2)
     
     return InlineKeyboardMarkup(keyboard)
-
-async def send_or_update_message(update, context, manager_id, gameweek, view_type, message_id=None):
-    """إرسال أو تحديث رسالة حسب الحالة"""
-    
-    # جلب البيانات الأساسية
-    info = get_manager_info(manager_id)
-    
-    if not info:
-        error_text = f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`."
-        if message_id:
-            await context.bot.edit_message_text(
-                text=error_text,
-                chat_id=update.effective_chat.id,
-                message_id=message_id,
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(error_text, parse_mode='Markdown')
-        return False
-    
-    # جلب تشكيلة المدرب في الجولة المحددة
-    picks_data = get_manager_picks(manager_id, gameweek)
-    
-    # إذا كانت الجولة لم تُلعب بعد أو لا توجد بيانات
-    if not picks_data:
-        no_data_text = f"⚠️ لا توجد بيانات متاحة للجولة {gameweek}.\nقد تكون هذه الجولة لم تُلعب بعد أو أن المدرب لم يشارك فيها."
-        if message_id:
-            await context.bot.edit_message_text(
-                text=no_data_text,
-                chat_id=update.effective_chat.id,
-                message_id=message_id,
-                parse_mode='Markdown'
-            )
-        else:
-            await update.message.reply_text(no_data_text, parse_mode='Markdown')
-        return False
-    
-    # جلب البيانات الإضافية حسب الحاجة
-    if view_type == "detail":
-        history = get_manager_history(manager_id)
-        leagues = get_manager_leagues(manager_id)
-    else:
-        history = None
-        leagues = None
-    
-    if view_type == "simple":
-        text = format_simple_display(manager_id, info, gameweek, picks_data)
-    else:
-        text = format_detailed_display(manager_id, info, gameweek, picks_data, history, leagues)
-    
-    reply_markup = get_buttons(manager_id, gameweek, view_type)
-    
-    if message_id:
-        await context.bot.edit_message_text(
-            text=text,
-            chat_id=update.effective_chat.id,
-            message_id=message_id,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
-    else:
-        await update.message.reply_text(
-            text=text,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
-    return True
 
 # ==================================================
 # معالجات البوت
@@ -325,9 +302,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "1️⃣ أرسل **رقم معرف المدرب**\n"
             "2️⃣ سيظهر لك بيانات **آخر جولة لعبت** تلقائياً\n"
             "3️⃣ استخدم الأزرار للتبديل بين:\n"
-            "   • 📋 عرض بسيط\n"
-            "   • 📊 عرض مفصل\n"
-            "   • ⬅️ الجولة السابقة (للتنقل بين الجولات)\n\n"
+            "   • 📋 عرض بسيط - الاسم، النقاط، الكابتن\n"
+            "   • 📊 عرض مفصل - كل المعلومات (اللاعبين، المجموعات، التاريخ)\n"
+            "   • ⬅️ الجولة السابقة - للتنقل بين الجولات\n\n"
+            "📊 **العرض المفصل يشمل:**\n"
+            "• نقاط المدرب في الجولة\n"
+            "• نقاط كل لاعب في الفريق\n"
+            "• ترتيب المدرب في المجموعات (الدوريات)\n"
+            "• تاريخ المواسم السابقة\n\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
             "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
@@ -378,7 +360,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not picks_data:
         await update.message.reply_text(
-            f"⚠️ لا توجد بيانات متاحة للجولة {start_gameweek}.",
+            f"⚠️ لا توجد بيانات متاحة للجولة {start_gameweek}.\nقد تكون هذه الجولة لم تُلعب بعد.",
             parse_mode='Markdown'
         )
         return
@@ -400,7 +382,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     message_id = query.message.message_id
     
-    # تجاهل أزرار "ignore"
     if data == "ignore":
         return
     
@@ -413,20 +394,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         manager_id = parts[1]
         gameweek = int(parts[2])
         
-        # نبقى في نفس نوع العرض الحالي (نحاول استنتاج من النص)
+        # تحديد نوع العرض الحالي من النص
         current_text = query.message.text
         if "العرض البسيط" in current_text:
             view_type = "simple"
         else:
             view_type = "detail"
         
-        # إظهار مؤقت
         await query.edit_message_text(
             text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
             reply_markup=None
         )
         
-        # جلب البيانات
         info = get_manager_info(manager_id)
         if not info:
             await query.edit_message_text(
@@ -447,8 +426,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = format_simple_display(manager_id, info, gameweek, picks_data)
         else:
             history = get_manager_history(manager_id)
-            leagues = get_manager_leagues(manager_id)
-            text = format_detailed_display(manager_id, info, gameweek, picks_data, history, leagues)
+            text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
         
         reply_markup = get_buttons(manager_id, gameweek, view_type)
         
@@ -465,7 +443,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         manager_id = parts[1]
         gameweek = int(parts[2])
         
-        # إظهار مؤقت
         await query.edit_message_text(
             text=f"🔄 جاري تحميل { 'العرض البسيط' if view_type == 'simple' else 'العرض المفصل' } للجولة {gameweek}...",
             reply_markup=None
@@ -491,8 +468,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = format_simple_display(manager_id, info, gameweek, picks_data)
         else:
             history = get_manager_history(manager_id)
-            leagues = get_manager_leagues(manager_id)
-            text = format_detailed_display(manager_id, info, gameweek, picks_data, history, leagues)
+            text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
         
         reply_markup = get_buttons(manager_id, gameweek, view_type)
         
@@ -516,7 +492,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     print("=" * 50)
-    print("🤖 البوت التفاعلي (مع التنقل بين الجولات) يعمل الآن...")
+    print("🤖 البوت التفاعلي (مع المجموعات ونقاط اللاعبين) يعمل الآن...")
     print(f"📅 آخر جولة لعبت: {last_gameweek}")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
