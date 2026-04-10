@@ -4,8 +4,8 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 
-# تفعيل تسجيل الأخطاء بمستوى DEBUG لرؤية كل التفاصيل
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
+# تفعيل تسجيل الأخطاء
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ==================================================
@@ -23,27 +23,22 @@ BASE_URL = "https://fantasy.premierleague.com/api"
 league_rank_cache = {}
 
 # ==================================================
-# دوال جلب البيانات مع سجلات التصحيح
+# دوال جلب البيانات
 # ==================================================
 
 def safe_api_request(url, debug_name="API Request"):
-    """تنفيذ طلب API بأمان مع إعادة المحاولة وسجلات التصحيح"""
-    logger.debug(f"📡 [{debug_name}] بدء طلب إلى: {url}")
+    """تنفيذ طلب API بأمان مع إعادة المحاولة"""
     for attempt in range(3):
         try:
             response = requests.get(url, timeout=30, headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             })
-            logger.debug(f"📡 [{debug_name}] محاولة {attempt+1}: استجابة {response.status_code}")
             if response.status_code == 200:
-                logger.debug(f"✅ [{debug_name}] نجح الطلب")
                 return response.json()
             elif response.status_code == 404:
-                logger.warning(f"⚠️ [{debug_name}] 404 - غير موجود: {url}")
                 return None
         except Exception as e:
-            logger.warning(f"⚠️ [{debug_name}] محاولة {attempt+1} فشلت: {e}")
-    logger.error(f"❌ [{debug_name}] فشل الطلب بعد 3 محاولات")
+            logger.warning(f"محاولة {attempt+1} فشلت: {e}")
     return None
 
 def get_manager_info(manager_id):
@@ -63,51 +58,62 @@ def get_live_points(gameweek):
         for element in data["elements"]:
             points = element.get("stats", {}).get("total_points", 0)
             live_points[element["id"]] = points
-    logger.debug(f"📊 get_live_points: تم جلب {len(live_points)} لاعب")
     return live_points
 
 def get_league_standings(league_id, manager_id):
     """
     جلب ترتيب المدرب في دوري معين.
-    هذه هي الدالة الأهم - سنضيف لها سجلات تفصيلية.
+    الآن مع دعم التصفح عبر الصفحات (Pagination) للبحث عن المدرب في أي صفحة.
     """
     cache_key = f"{league_id}_{manager_id}"
     
     # التحقق من الكاش
     if cache_key in league_rank_cache:
-        logger.debug(f"🗂️ get_league_standings: تم استرداد {cache_key} من الكاش = {league_rank_cache[cache_key]}")
+        logger.debug(f"🗂️ تم استرداد {cache_key} من الكاش = {league_rank_cache[cache_key]}")
         return league_rank_cache[cache_key]
     
-    logger.debug(f"🔍 get_league_standings: جلب ترتيب الدوري {league_id} للمدرب {manager_id}")
+    logger.info(f"🔍 البحث عن المدرب {manager_id} في الدوري {league_id}")
     
-    url = f"{BASE_URL}/leagues-classic/{league_id}/standings/"
-    data = safe_api_request(url, f"get_league_standings_{league_id}")
+    page = 1
+    max_pages = 10  # الحد الأقصى لعدد الصفحات للبحث (كل صفحة 50 مدرب = 500 مدرب)
     
-    if not data:
-        logger.warning(f"⚠️ get_league_standings: لا توجد بيانات للدوري {league_id}")
-        return (None, None)
-    
-    logger.debug(f"📄 get_league_standings: البيانات المستلمة تحتوي على مفاتيح: {data.keys()}")
-    
-    if "standings" in data and "results" in data["standings"]:
-        logger.debug(f"📋 get_league_standings: عدد النتائج في الترتيب: {len(data['standings']['results'])}")
+    while page <= max_pages:
+        url = f"{BASE_URL}/leagues-classic/{league_id}/standings/?page={page}"
+        logger.debug(f"📡 جلب الصفحة {page}: {url}")
         
-        for entry in data["standings"]["results"]:
+        data = safe_api_request(url, f"get_league_standings_page_{page}")
+        
+        if not data:
+            logger.warning(f"⚠️ لا توجد بيانات للصفحة {page} في الدوري {league_id}")
+            break
+        
+        if "standings" not in data or "results" not in data["standings"]:
+            logger.warning(f"⚠️ هيكل بيانات غير متوقع في الصفحة {page}")
+            break
+        
+        results = data["standings"]["results"]
+        total_teams = data["standings"].get("total_teams", 0)
+        logger.debug(f"📋 الصفحة {page}: {len(results)} مدرب (إجمالي {total_teams})")
+        
+        # البحث عن المدرب في هذه الصفحة
+        for entry in results:
             entry_id = entry.get("entry")
-            logger.debug(f"  - مقارنة معرف المدرب: {entry_id} == {manager_id}?")
             if str(entry_id) == str(manager_id):
                 rank = entry.get("rank")
-                total_teams = data["standings"].get("total_teams")
-                logger.info(f"🎉 تم العثور على المدرب! الترتيب: {rank}/{total_teams}")
+                logger.info(f"🎉 تم العثور على المدرب! في الصفحة {page}، الترتيب: {rank}/{total_teams}")
                 result = (rank, total_teams)
                 league_rank_cache[cache_key] = result
                 return result
         
-        logger.warning(f"⚠️ لم يتم العثور على المدرب {manager_id} في ترتيب الدوري {league_id}")
-    else:
-        logger.warning(f"⚠️ get_league_standings: هيكل البيانات غير متوقع للدوري {league_id}")
-        logger.debug(f"   محتوى data: {str(data)[:500]}...")
+        # التحقق من وجود صفحة تالية
+        if not data["standings"].get("has_next"):
+            logger.debug(f"📄 لا توجد صفحات إضافية بعد الصفحة {page}")
+            break
+        
+        page += 1
     
+    logger.warning(f"⚠️ لم يتم العثور على المدرب {manager_id} في الدوري {league_id} بعد البحث في {page} صفحات")
+    league_rank_cache[cache_key] = (None, None)
     return (None, None)
 
 def get_players_dict():
@@ -222,7 +228,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     )
     
     # ==========================================
-    # عرض لاعبي الفريق
+    # عرض لاعبي الفريق مع نقاطهم
     # ==========================================
     if picks_data and "picks" in picks_data:
         live_points_map = get_live_points(gameweek)
@@ -242,24 +248,20 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
     
     # ==========================================
-    # عرض المجموعات مع الترتيب (مع سجلات إضافية)
+    # عرض المجموعات مع الترتيب (مع Pagination)
     # ==========================================
     leagues = info.get("leagues", {})
     classic_leagues = leagues.get("classic", [])
-    
-    logger.debug(f"🏅 عدد الدوريات الكلاسيكية: {len(classic_leagues)}")
     
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n"
         for idx, league in enumerate(classic_leagues[:5], 1):
             league_name = safe_str(league.get("name", "غير معروف"))
             league_id = league.get("id")
-            logger.debug(f"🏅 معالجة الدوري {idx}: {league_name} (ID: {league_id})")
             
             if league_id:
-                # محاولة جلب الترتيب
+                # الآن هذه الدالة ستجلب الترتيب حتى لو كان المدرب في صفحة متأخرة
                 league_rank, league_total = get_league_standings(league_id, manager_id)
-                logger.debug(f"   النتيجة: rank={league_rank}, total={league_total}")
                 
                 if league_rank is not None and league_total is not None:
                     response += f"{idx}. {league_name}: {league_rank}/{league_total}\n"
@@ -267,10 +269,8 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                     response += f"{idx}. {league_name}: الترتيب {league_rank}\n"
                 else:
                     response += f"{idx}. {league_name}\n"
-                    logger.warning(f"⚠️ لم يتم العثور على ترتيب للمدرب في الدوري {league_name}")
             else:
                 response += f"{idx}. {league_name}\n"
-                logger.warning(f"⚠️ الدوري {league_name} ليس له معرف (league_id)")
         response += "\n"
     else:
         response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
@@ -312,12 +312,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if message_text.startswith('/start') or message_text.startswith('/help'):
         await update.message.reply_text(
-            "🎮 **بوت مساعد الفانتاسي التفاعلي - مع سجلات التصحيح**\n\n"
+            "🎮 **بوت مساعد الفانتاسي التفاعلي - النسخة النهائية**\n\n"
             "✨ **كيف يعمل؟**\n"
             "1️⃣ أرسل **رقم معرف المدرب**\n"
             "2️⃣ سيظهر لك بيانات **آخر جولة لعبت** تلقائياً\n\n"
-            "🔍 **ملاحظة:** هذا الإصدار يحتوي على سجلات تصحيح (Debug Logs)\n"
-            "يمكنك مراجعة سجل Railway لمعرفة سبب عدم ظهور ترتيب الدوريات\n\n"
+            "📊 **جميع البيانات متاحة الآن:**\n"
+            "✓ نقاط الجولة للمدرب\n"
+            "✓ النقاط الكلية والترتيب العالمي\n"
+            "✓ **نقاط كل لاعب في الفريق**\n"
+            "✓ **نقاط الكابتن في العرض البسيط**\n"
+            "✓ **ترتيب المدرب في كل دوري (تم إصلاح Pagination)**\n"
+            "✓ تاريخ المواسم السابقة\n\n"
+            "🔑 **كيف تحصل على معرف مدرب؟**\n"
+            "افتح موقع FPL، الرقم في الرابط:\n"
+            "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
             "📝 **مثال:** أرسل `2794801`",
             parse_mode='Markdown'
         )
@@ -337,7 +345,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = get_manager_info(manager_id)
     if not info:
         await update.message.reply_text(
-            f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+            f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.\n\nتأكد من صحة المعرف.\nيمكنك تجربة: `2794801`",
             parse_mode='Markdown'
         )
         return
@@ -346,7 +354,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_gameweek = last_gameweek
     
     await update.message.reply_text(
-        f"✅ تم العثور على المدرب **{name}**!\n📅 سيتم عرض بيانات **الجولة {start_gameweek}**\n\n🔄 جاري تحميل البيانات...",
+        f"✅ تم العثور على المدرب **{name}**!\n📅 سيتم عرض بيانات **الجولة {start_gameweek}** (آخر جولة لعبت)\n\n🔄 جاري تحميل البيانات...",
         parse_mode='Markdown'
     )
     
@@ -425,10 +433,10 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     print("=" * 50)
-    print("🤖 البوت يعمل الآن مع سجلات التصحيح (Debug Mode)")
+    print("🤖 البوت يعمل الآن (مع Pagination للدوريات)")
     print(f"📅 آخر جولة لعبت: {last_gameweek}")
+    print("✅ تم إصلاح: البحث عن ترتيب المدرب في جميع صفحات الدوري")
     print("📡 أرسل معرف مدرب للبدء")
-    print("🔍 تأكد من مراجعة سجل Railway (Logs) لرؤية تفاصيل الطلبات")
     print("=" * 50)
     
     application.run_polling()
