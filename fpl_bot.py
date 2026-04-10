@@ -1,50 +1,46 @@
-# أولاً: استيراد المكتبات التي سنحتاجها
 import logging
+import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from fplapi import fplAPI  # هذه المكتبة تسهل التعامل مع بيانات اللعبة
+from telegram.ext import Application, CommandHandler, ContextTypes
+from fplapi import fplAPI
 
-# تفعيل نظام تسجيل الأخطاء لمتابعة البوت
+# تفعيل تسجيل الأخطاء لمتابعة البوت
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- 1. تهيئة الاتصال بـ API الفانتاسي ---
-# سنقوم بإنشاء كائن (object) من المكتبة للتواصل مع السيرفر
-fpl_client = fplAPI()
+# ==================================================
+# ✨ غيّر هذين السطرين فقط ✨
+# ==================================================
+# 1. ضع رابط الوكيل (Proxy URL) الذي حصلت عليه من Cloudflare هنا
+# 2. ضع توكن البوت الذي أعطاك إياه BotFather هنا
+BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+# ==================================================
 
-# --- 2. تحميل البيانات الأساسية (مرة واحدة عند تشغيل البوت) ---
-# هذه البيانات تحتوي على كل اللاعبين، الأندية، والأسعار
+# تهيئة اتصال API الفانتاسي
 print("جاري تحميل بيانات اللعبة من السيرفر...")
-bootstrap_data = fpl_client.get_fpl_data()  # هذا يجلب كل البيانات
-players_data = bootstrap_data["elements"]   # هذا مصفوفة تحتوي على كل اللاعبين
+fpl_client = fplAPI()
+bootstrap_data = fpl_client.get_fpl_data()
+players_data = bootstrap_data["elements"]
 print("تم تحميل البيانات بنجاح!")
 
-# --- 3. دالة مساعدة للبحث عن لاعب بالاسم ---
+# دالة البحث عن لاعب
 def search_player_by_name(name):
-    """
-    هذه الدالة تبحث عن لاعب باستخدام اسمه (أو جزء من الاسم)
-    وتُرجع أول لاعب تطابق
-    """
-    name = name.lower()  # تحويل الاسم إلى حروف صغيرة لتسهيل المقارنة
+    name = name.lower()
     for player in players_data:
-        # الاسم الكامل للاعب موجود في first_name و second_name
         full_name = f"{player['first_name']} {player['second_name']}".lower()
         if name in full_name:
             return player
-    return None  # إذا لم يتم العثور على لاعب
+    return None
 
-# --- 4. أوامر البوت ---
-
-# أمر /start
+# أوامر البوت
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "مرحباً بك في بوت مساعد الفانتاسي! ⚽\n\n"
         "الأوامر المتاحة:\n"
-        "/player (اسم اللاعب) - للحصول على معلومات لاعب\n"
-        "/myteam - لعرض لاعبي فريقي\n"
-        "/help - للمساعدة"
+        "/player (اسم اللاعب) - معلومات لاعب\n"
+        "/myteam - عرض لاعبي فريقي\n"
+        "/help - المساعدة"
     )
 
-# أمر /help
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "كيفية الاستخدام:\n"
@@ -52,46 +48,33 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "اكتب /myteam لعرض فريقك"
     )
 
-# أمر /myteam (فريق افتراضي)
 async def myteam(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # هذه قائمة بأسماء اللاعبين في فريقك، يمكنك تعديلها بأسماء فريقك الحقيقي
     my_players_names = ["Mohamed Salah", "Erling Haaland", "Bukayo Saka"]
-    
     reply_message = "🧑‍🤝‍🧑 **لاعبو فريقي:**\n\n"
-    
     for player_name in my_players_names:
         player = search_player_by_name(player_name)
         if player:
-            # استخراج المعلومات المهمة
             name = f"{player['first_name']} {player['second_name']}"
-            points = player['total_points']  # النقاط الكلية
-            form = player['form']  # الفورم (الآخر 30 يوم)
-            now_cost = player['now_cost'] / 10  # السعر بالملايين
-            # إضافة المعلومات للرسالة
+            points = player['total_points']
+            form = player['form']
+            now_cost = player['now_cost'] / 10
             reply_message += f"• *{name}*: {points} نقطة | السعر: {now_cost}M | الفورم: {form}\n"
         else:
             reply_message += f"• *{player_name}*: لم يتم العثور عليه\n"
-            
     await update.message.reply_text(reply_message, parse_mode='Markdown')
 
-# أمر /player للبحث عن لاعب
 async def player(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # context.args تحتوي على الكلمات التي كتبها المستخدم بعد الأمر
     if not context.args:
         await update.message.reply_text("الرجاء كتابة اسم اللاعب. مثال: /player محمد صلاح")
         return
-    
-    # دمج الكلمات لتكوين الاسم الكامل
     search_term = " ".join(context.args)
     player = search_player_by_name(search_term)
-    
     if player:
         name = f"{player['first_name']} {player['second_name']}"
         points = player['total_points']
         form = player['form']
         now_cost = player['now_cost'] / 10
-        selected_by = player['selected_by_percent']  # نسبة ملاك اللاعب
-        # تجهيز الرسالة
+        selected_by = player['selected_by_percent']
         response = (
             f"⚽ *{name}*\n\n"
             f"📊 النقاط الكلية: {points}\n"
@@ -101,24 +84,24 @@ async def player(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(response, parse_mode='Markdown')
     else:
-        await update.message.reply_text(f"لم أجد لاعباً بالاسم '{search_term}'. تأكد من كتابة الاسم بشكل صحيح.")
+        await update.message.reply_text(f"لم أجد لاعباً بالاسم '{search_term}'.")
 
-# --- 5. تشغيل البوت ---
+# تشغيل البوت
 def main():
-    # ⚠️ مهم جداً: ضع التوكن الذي أعطاك إياه BotFather هنا
-    TOKEN = "YOUR_BOT_TOKEN_HERE"
+    # هنا نستخدم Proxy URL بدلاً من الـ default
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .base_url(PROXY_URL)  # <-- هذا السطر هو الحل السحري!
+        .build()
+    )
     
-    # إنشاء التطبيق
-    application = Application.builder().token(TOKEN).build()
-    
-    # ربط الأوامر بالدوال التي كتبناها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("myteam", myteam))
     application.add_handler(CommandHandler("player", player))
     
-    # بدء تشغيل البوت (الاستماع للرسائل)
-    print("البوت يعمل الآن...")
+    print("البوت يعمل الآن عبر الـ Proxy...")
     application.run_polling()
 
 if __name__ == '__main__':
