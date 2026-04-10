@@ -19,9 +19,6 @@ if not BOT_TOKEN:
 
 BASE_URL = "https://fantasy.premierleague.com/api"
 
-# قاموس لتخزين بيانات الدوريات مؤقتاً
-league_rank_cache = {}
-
 # ==================================================
 # دوال جلب البيانات
 # ==================================================
@@ -42,15 +39,19 @@ def safe_api_request(url, debug_name="API Request"):
     return None
 
 def get_manager_info(manager_id):
+    """جلب المعلومات الأساسية لمدرب - تحتوي على entry_rank للدوريات"""
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/", "get_manager_info")
 
 def get_manager_history(manager_id):
+    """جلب تاريخ المدرب"""
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/history/", "get_manager_history")
 
 def get_manager_picks(manager_id, gameweek):
+    """جلب تشكيلة المدرب في جولة معينة"""
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/event/{gameweek}/picks/", "get_manager_picks")
 
 def get_live_points(gameweek):
+    """جلب النقاط الحية أو النهائية لجميع اللاعبين في جولة معينة"""
     url = f"{BASE_URL}/event/{gameweek}/live/"
     data = safe_api_request(url, "get_live_points")
     live_points = {}
@@ -60,63 +61,8 @@ def get_live_points(gameweek):
             live_points[element["id"]] = points
     return live_points
 
-def get_league_standings(league_id, manager_id):
-    """
-    جلب ترتيب المدرب في دوري معين.
-    الآن مع دعم التصفح عبر الصفحات (Pagination) للبحث عن المدرب في أي صفحة.
-    """
-    cache_key = f"{league_id}_{manager_id}"
-    
-    # التحقق من الكاش
-    if cache_key in league_rank_cache:
-        logger.debug(f"🗂️ تم استرداد {cache_key} من الكاش = {league_rank_cache[cache_key]}")
-        return league_rank_cache[cache_key]
-    
-    logger.info(f"🔍 البحث عن المدرب {manager_id} في الدوري {league_id}")
-    
-    page = 1
-    max_pages = 10  # الحد الأقصى لعدد الصفحات للبحث (كل صفحة 50 مدرب = 500 مدرب)
-    
-    while page <= max_pages:
-        url = f"{BASE_URL}/leagues-classic/{league_id}/standings/?page={page}"
-        logger.debug(f"📡 جلب الصفحة {page}: {url}")
-        
-        data = safe_api_request(url, f"get_league_standings_page_{page}")
-        
-        if not data:
-            logger.warning(f"⚠️ لا توجد بيانات للصفحة {page} في الدوري {league_id}")
-            break
-        
-        if "standings" not in data or "results" not in data["standings"]:
-            logger.warning(f"⚠️ هيكل بيانات غير متوقع في الصفحة {page}")
-            break
-        
-        results = data["standings"]["results"]
-        total_teams = data["standings"].get("total_teams", 0)
-        logger.debug(f"📋 الصفحة {page}: {len(results)} مدرب (إجمالي {total_teams})")
-        
-        # البحث عن المدرب في هذه الصفحة
-        for entry in results:
-            entry_id = entry.get("entry")
-            if str(entry_id) == str(manager_id):
-                rank = entry.get("rank")
-                logger.info(f"🎉 تم العثور على المدرب! في الصفحة {page}، الترتيب: {rank}/{total_teams}")
-                result = (rank, total_teams)
-                league_rank_cache[cache_key] = result
-                return result
-        
-        # التحقق من وجود صفحة تالية
-        if not data["standings"].get("has_next"):
-            logger.debug(f"📄 لا توجد صفحات إضافية بعد الصفحة {page}")
-            break
-        
-        page += 1
-    
-    logger.warning(f"⚠️ لم يتم العثور على المدرب {manager_id} في الدوري {league_id} بعد البحث في {page} صفحات")
-    league_rank_cache[cache_key] = (None, None)
-    return (None, None)
-
 def get_players_dict():
+    """جلب أسماء جميع اللاعبين"""
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_dict")
     players = {}
     if data and "elements" in data:
@@ -126,6 +72,7 @@ def get_players_dict():
     return players
 
 def get_last_played_gameweek():
+    """تحديد آخر جولة انتهت فعلاً"""
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_last_played_gameweek")
     if data and "events" in data:
         for event in reversed(data["events"]):
@@ -248,7 +195,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
     
     # ==========================================
-    # عرض المجموعات مع الترتيب (مع Pagination)
+    # عرض المجموعات مع الترتيب (الحل الجديد من الخبير)
     # ==========================================
     leagues = info.get("leagues", {})
     classic_leagues = leagues.get("classic", [])
@@ -257,18 +204,22 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         response += "🏅 **المجموعات (الدوريات):**\n"
         for idx, league in enumerate(classic_leagues[:5], 1):
             league_name = safe_str(league.get("name", "غير معروف"))
-            league_id = league.get("id")
             
-            if league_id:
-                # الآن هذه الدالة ستجلب الترتيب حتى لو كان المدرب في صفحة متأخرة
-                league_rank, league_total = get_league_standings(league_id, manager_id)
-                
-                if league_rank is not None and league_total is not None:
-                    response += f"{idx}. {league_name}: {league_rank}/{league_total}\n"
-                elif league_rank is not None:
-                    response += f"{idx}. {league_name}: الترتيب {league_rank}\n"
-                else:
-                    response += f"{idx}. {league_name}\n"
+            # الحل السحري: نأخذ الترتيب مباشرة من بيانات المدرب!
+            # entry_rank هو ترتيب المدرب في هذا الدوري
+            league_rank = league.get('entry_rank')
+            
+            # إذا لم يتوفر entry_rank، نحاول الحصول عليه من حقل rank (احتياطياً)
+            if not league_rank:
+                league_rank = league.get('rank')
+            
+            # عدد المشاركين في الدوري
+            league_total = league.get('rank_count')
+            
+            if league_rank is not None and league_total is not None:
+                response += f"{idx}. {league_name}: {league_rank}/{league_total}\n"
+            elif league_rank is not None:
+                response += f"{idx}. {league_name}: الترتيب {league_rank}\n"
             else:
                 response += f"{idx}. {league_name}\n"
         response += "\n"
@@ -321,7 +272,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✓ النقاط الكلية والترتيب العالمي\n"
             "✓ **نقاط كل لاعب في الفريق**\n"
             "✓ **نقاط الكابتن في العرض البسيط**\n"
-            "✓ **ترتيب المدرب في كل دوري (تم إصلاح Pagination)**\n"
+            "✓ **ترتيب المدرب في كل دوري (تم الإصلاح نهائياً)**\n"
             "✓ تاريخ المواسم السابقة\n\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
@@ -433,9 +384,10 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     print("=" * 50)
-    print("🤖 البوت يعمل الآن (مع Pagination للدوريات)")
+    print("🤖 البوت يعمل الآن (مع حل الخبير - entry_rank)")
     print(f"📅 آخر جولة لعبت: {last_gameweek}")
-    print("✅ تم إصلاح: البحث عن ترتيب المدرب في جميع صفحات الدوري")
+    print("✅ تم إصلاح ترتيب الدوريات بشكل نهائي")
+    print("🚀 أسرع وأكثر استقراراً - طلب API واحد فقط")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
     
