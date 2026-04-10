@@ -32,7 +32,7 @@ def get_manager_info(manager_id):
             return response.json()
         return None
     except Exception as e:
-        print(f"خطأ: {e}")
+        print(f"خطأ في جلب معلومات المدرب: {e}")
         return None
 
 def get_manager_history(manager_id):
@@ -44,8 +44,27 @@ def get_manager_history(manager_id):
             return response.json()
         return None
     except Exception as e:
-        print(f"خطأ: {e}")
+        print(f"خطأ في جلب تاريخ المدرب: {e}")
         return None
+
+# ==================================================
+# دالة مساعدة لتحويل القيم الفارغة إلى 0
+# ==================================================
+
+def safe_int(value):
+    """تحويل القيمة إلى int بشكل آمن"""
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
+
+def safe_str(value):
+    """تحويل القيمة إلى string بشكل آمن"""
+    if value is None:
+        return "غير معروف"
+    return str(value)
 
 # ==================================================
 # دالة معالجة الرسائل (القلب الرئيسي للبوت)
@@ -102,36 +121,50 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # بناء الرسالة
-    name = info.get("name", "غير معروف")
-    joined = info.get("joined_time", "غير معروف")[:10]
-    total_points = info.get("summary_overall_points", 0)
-    rank = info.get("summary_overall_rank", 0)
-    event_points = info.get("summary_event_points", 0)
-    event_rank = info.get("summary_event_rank", 0)
-    total_transfers = info.get("total_transfers", 0)
+    # استخراج البيانات مع التعامل مع القيم الفارغة
+    name = safe_str(info.get("name"))
+    joined = safe_str(info.get("joined_time", ""))[:10]
+    if joined == "":
+        joined = "غير معروف"
     
+    total_points = safe_int(info.get("summary_overall_points"))
+    rank = safe_int(info.get("summary_overall_rank"))
+    event_points = safe_int(info.get("summary_event_points"))
+    event_rank = safe_int(info.get("summary_event_rank"))
+    total_transfers = safe_int(info.get("total_transfers"))
+    
+    # تنسيق الأرقام الكبيرة (إضافة فواصل)
+    rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
+    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
+    
+    # بناء الرسالة
     response = (
         f"🎮 **{name}**\n"
         f"🆔 المعرف: `{manager_id}`\n"
         f"📅 انضم: {joined}\n\n"
         f"📊 **الإحصائيات الكلية**\n"
         f"⭐ النقاط: *{total_points}*\n"
-        f"🏆 الترتيب العالمي: *{rank:,}*\n"
+        f"🏆 الترتيب العالمي: *{rank_str}*\n"
         f"🔄 الانتقالات: *{total_transfers}*\n\n"
         f"📈 **آخر أسبوع**\n"
         f"⭐ نقاط: *{event_points}*\n"
-        f"🏆 ترتيب الأسبوع: *{event_rank:,}*\n"
+        f"🏆 ترتيب الأسبوع: *{event_rank_str}*\n"
     )
     
     # إضافة تاريخ المواسم السابقة إذا وجد
     if history and "past" in history and history["past"]:
         response += "\n📜 **المواسم السابقة**\n"
         for season in history["past"][-3:]:  # آخر 3 مواسم فقط
-            season_name = season.get("season_name", "")
-            season_points = season.get("total_points", 0)
-            season_rank = season.get("rank", 0)
-            response += f"• {season_name}: {season_points} نقطة (الترتيب {season_rank:,})\n"
+            season_name = safe_str(season.get("season_name"))
+            season_points = safe_int(season.get("total_points"))
+            season_rank = safe_int(season.get("rank"))
+            season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
+            response += f"• {season_name}: {season_points} نقطة (الترتيب {season_rank_str})\n"
+    
+    # إضافة معلومات إضافية إذا وجدت
+    if info.get("kit"):
+        kit = safe_str(info.get("kit"))
+        response += f"\n👕 القميص: {kit}\n"
     
     await update.message.reply_text(response, parse_mode='Markdown')
 
