@@ -287,7 +287,7 @@ def get_buttons(manager_id, gameweek, current_view):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
 
-     if message_text.startswith('/start') or message_text.startswith('/help'):
+    if message_text.startswith('/start') or message_text.startswith('/help'):
         await update.message.reply_text(
         "🎮 **بوت مساعد الفانتاسي**\n"
         "✨ **كيف يعمل؟**\n"
@@ -459,7 +459,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
         return
-
 # ----------------------------- تشغيل البوت -----------------------------
 
 def main():
