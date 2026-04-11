@@ -116,6 +116,7 @@ def safe_str(value):
 def format_simple_display(manager_id, info, gameweek, picks_data):
     name = safe_str(info.get("name"))
     total_points = safe_int(info.get("summary_overall_points"))
+    rank = safe_int(info.get("summary_overall_rank"))
     
     live_points_map = get_live_points(gameweek)
     
@@ -138,7 +139,8 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
         # <-- أضف هذا الجزء لجلب ترتيب الجولة
         if "entry_history" in picks_data:
             event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
-    
+
+    rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"  # <-- أضف هذا السطر
     
     response = (
@@ -147,6 +149,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
         f"📊 **العرض البسيط - الجولة {gameweek}**\n"
         f"⭐ نقاط الجولة: *{event_points}*\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
+        f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"📊 ترتيب الجولة: *{event_rank_str}*\n"  # <-- أضف هذا السطر
     )
     
