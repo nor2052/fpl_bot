@@ -1,4 +1,5 @@
 #FPL Manager Stats Bot
+
 هذا بوت تفاعلي لتلغرام -مكتوب بمساعدة الذكاء الاصطناعي- يقوم بجلب وعرض إحصائيات المدربين في لعبة Fantasy Premier League (FPL). الفكرة الأساسية هي إرسال رقم معرف المدرب، ثم الحصول على معلومات مفصلة عن فريقه، نقاطه، ترتيبه، والمجموعات التي يشارك فيها.
 
 This is an interactive Telegram bot -written by AI model- that fetches and displays manager statistics from the Fantasy Premier League (FPL) game. The main idea is to send a manager ID, then receive detailed information about their team, points, rank, and the leagues they participate in.
