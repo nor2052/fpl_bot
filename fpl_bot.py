@@ -287,7 +287,7 @@ def get_buttons(manager_id, gameweek, current_view):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
 
-    if message_text.startswith('/start') or message_text.startswith('/help'):
+     if message_text.startswith('/start') or message_text.startswith('/help'):
         await update.message.reply_text(
         "🎮 **بوت مساعد الفانتاسي**\n"
         "✨ **كيف يعمل؟**\n"
@@ -309,12 +309,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         manager_id = int(message_text)
+        # ✅ أضف هذا السطر - حفظ معرف المدرب لهذا المستخدم
+        context.user_data['current_manager_id'] = manager_id
     except ValueError:
         await update.message.reply_text(
             "❌ يرجى إرسال **رقم معرف المدرب** فقط.\nمثال: `1234567`\nأو أرسل /help للمساعدة",
             parse_mode='Markdown'
         )
         return
+
+    # ... (باقي الكود كما هو)
+ 
 
     await update.message.reply_text(f"🔄 جاري التحقق من المعرف {manager_id}...")
 
@@ -338,65 +343,121 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = format_simple_display(manager_id, info, start_gameweek, picks_data)
     reply_markup = get_buttons(manager_id, start_gameweek, "simple")
 
+    
+
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الضغط على الأزرار - دعم متعدد المستخدمين"""
     query = update.callback_query
-    await query.answer()
-
+    await query.answer()  # مهم جداً
+    
     data = query.data
+    chat_id = query.message.chat_id
     message_id = query.message.message_id
+    
     parts = data.split("_")
-
+    
     if len(parts) < 3:
         return
-
+    
+    # استخدم manager_id من user_data إذا كان متاحاً، وإلا استخدمه من callback_data
+    manager_id = context.user_data.get('current_manager_id')
+    if not manager_id:
+        # محاولة استخراج manager_id من callback_data كحل احتياطي
+        try:
+            manager_id = parts[1]
+        except IndexError:
+            await context.bot.edit_message_text(
+                text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى.",
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode='Markdown'
+            )
+            return
+    
+    # معالجة أزرار التنقل (nav)
     if parts[0] == "nav":
-        manager_id = parts[1]
         gameweek = int(parts[2])
-
+        
         current_text = query.message.text
         view_type = "simple" if "العرض البسيط" in current_text else "detail"
-
-        await query.edit_message_text(text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...", reply_markup=None)
-
+        
+        # إظهار مؤقت التحميل
+        await context.bot.edit_message_text(
+            text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=None
+        )
+        
         info = get_manager_info(manager_id)
         if not info:
-            await query.edit_message_text(text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.", parse_mode='Markdown')
+            await context.bot.edit_message_text(
+                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode='Markdown'
+            )
             return
-
+        
         picks_data = get_manager_picks(manager_id, gameweek)
+        
         if view_type == "simple":
             text = format_simple_display(manager_id, info, gameweek, picks_data)
         else:
             text = format_detailed_display(manager_id, info, gameweek, picks_data, get_manager_history(manager_id))
-
+        
         reply_markup = get_buttons(manager_id, gameweek, view_type)
-
-        await query.edit_message_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
+        
+        await context.bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
         return
-
+    
+    # معالجة أزرار العرض (simple/detail)
     if parts[0] in ["simple", "detail"]:
         view_type = parts[0]
-        manager_id = parts[1]
         gameweek = int(parts[2])
-
-        await query.edit_message_text(text=f"🔄 جاري تحميل { 'العرض البسيط' if view_type == 'simple' else 'العرض المفصل' } للجولة {gameweek}...", reply_markup=None)
-
+        
+        # إظهار مؤقت التحميل
+        await context.bot.edit_message_text(
+            text=f"🔄 جاري تحميل { 'العرض البسيط' if view_type == 'simple' else 'العرض المفصل' } للجولة {gameweek}...",
+            chat_id=chat_id,
+            message_id=message_id,
+            reply_markup=None
+        )
+        
         info = get_manager_info(manager_id)
         if not info:
-            await query.edit_message_text(text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.", parse_mode='Markdown')
+            await context.bot.edit_message_text(
+                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode='Markdown'
+            )
             return
-
+        
         picks_data = get_manager_picks(manager_id, gameweek)
+        
         if view_type == "simple":
             text = format_simple_display(manager_id, info, gameweek, picks_data)
         else:
             text = format_detailed_display(manager_id, info, gameweek, picks_data, get_manager_history(manager_id))
-
+        
         reply_markup = get_buttons(manager_id, gameweek, view_type)
-
-        await query.edit_message_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
+        
+        await context.bot.edit_message_text(
+            text=text,
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
         return
 
 # ----------------------------- تشغيل البوت -----------------------------
