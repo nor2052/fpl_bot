@@ -144,14 +144,15 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"  # <-- أضف هذا السطر
     
     response = (
-        f"🎮 **{name}**\n"
-        f"🆔 المعرف: `{manager_id}`\n\n"
-        f"📊 **العرض البسيط - الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{event_points}*\n"
-        f"🏆 النقاط الكلية: *{total_points}*\n"
-        f"📈 الترتيب العالمي: *{rank_str}*\n"
-        f"📊 ترتيب الجولة: *{event_rank_str}*\n"  # <-- أضف هذا السطر
-    )
+    f"<b>🎮 {name}</b>\n"
+    f"<code>🆔 المعرف: {manager_id}</code>\n\n"
+    f"<b>📊 العرض البسيط - الجولة {gameweek}</b>\n"
+    f"⭐ <b>نقاط الجولة:</b> <code>{event_points}</code>\n"
+    f"🏆 <b>النقاط الكلية:</b> <code>{total_points}</code>\n"
+    f"📈 <b>الترتيب العالمي:</b> <code>{rank_str}</code>\n"
+    f"📊 <b>ترتيب الجولة:</b> <code>{event_rank_str}</code>\n",
+    parse_mode='HTML'
+)
     
     if captain_name:
         response += f"👑 الكابتن ({captain_name}): *{captain_points}* نقطة\n"
@@ -195,16 +196,17 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
     
     response = (
-        f"🎮 **{name}**\n"
-        f"🆔 المعرف: `{manager_id}`\n"
-        f"📅 انضم: {joined}\n\n"
-        f"📊 **العرض المفصل - الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{calculated_event_points}*\n"
-        f"🏆 النقاط الكلية: *{total_points}*\n"
-        f"📈 الترتيب العالمي: *{rank_str}*\n"
-        f"🔄 انتقالات الجولة: *{total_transfers}*\n"
-        f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
-    )
+    f"<b>🎮 {name}</b>\n"
+    f"<code>🆔 المعرف: {manager_id}</code>\n"
+    f"📅 <b>انضم:</b> <code>{joined}</code>\n\n"
+    f"<b>📊 العرض المفصل - الجولة {gameweek}</b>\n"
+    f"⭐ <b>نقاط الجولة:</b> <code>{calculated_event_points}</code>\n"
+    f"🏆 <b>النقاط الكلية:</b> <code>{total_points}</code>\n"
+    f"📈 <b>الترتيب العالمي:</b> <code>{rank_str}</code>\n"
+    f"🔄 <b>انتقالات الجولة:</b> <code>{total_transfers}</code>\n"
+    f"📊 <b>ترتيب الجولة:</b> <code>{event_rank_str}</code>\n\n",
+    parse_mode='HTML'
+)
     
     # ==========================================
     # عرض لاعبي الفريق مع نقاطهم (نستخدم نفس live_points_map)
@@ -286,23 +288,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if message_text.startswith('/start') or message_text.startswith('/help'):
         await update.message.reply_text(
-            "🎮 **بوت مساعد الفانتاسي التفاعلي - النسخة النهائية**\n\n"
-            "✨ **كيف يعمل؟**\n"
-            "1️⃣ أرسل **رقم معرف المدرب**\n"
-            "2️⃣ سيظهر لك بيانات **آخر جولة لعبت** تلقائياً\n\n"
-            "📊 **البيانات المتاحة:**\n"
-            "✓ نقاط الجولة للمدرب\n"
-            "✓ النقاط الكلية والترتيب العالمي\n"
-            "✓ **نقاط كل لاعب في الفريق**\n"
-            "✓ **نقاط الكابتن في العرض البسيط**\n"
-            "✓ **ترتيب المدرب في كل دوري**\n"
-            "✓ تاريخ المواسم السابقة\n\n"
-            "🔑 **كيف تحصل على معرف مدرب؟**\n"
-            "افتح موقع FPL، الرقم في الرابط:\n"
-            "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
-            "📝 **مثال:** أرسل `2794801`",
-            parse_mode='Markdown'
-        )
+    "<b>🎮 بوت مساعد الفانتاسي التفاعلي - النسخة النهائية</b>\n\n"
+    "<b>✨ كيف يعمل؟</b>\n"
+    "1️⃣ أرسل <b>رقم معرف المدرب</b>\n"
+    "2️⃣ سيظهر لك بيانات <b>الجولة الحالية</b> تلقائياً\n\n"
+    "<b>📊 البيانات المتاحة:</b>\n"
+    "✓ نقاط الجولة للمدرب\n"
+    "✓ النقاط الكلية والترتيب العالمي\n"
+    "✓ <b>نقاط كل لاعب في الفريق</b>\n"
+    "✓ <b>نقاط الكابتن في العرض البسيط</b>\n"
+    "✓ <b>ترتيب المدرب في كل دوري</b>\n"
+    "✓ تاريخ المواسم السابقة\n\n"
+    "<b>🔑 كيف تحصل على معرف مدرب؟</b>\n"
+    "افتح موقع FPL، الرقم في الرابط:\n"
+    "<code>https://fantasy.premierleague.com/entry/1234567/</code>\n\n"
+    "<b>📝 مثال:</b> أرسل <code>2794801</code>",
+    parse_mode='HTML'
+)
         return
     
     try:
