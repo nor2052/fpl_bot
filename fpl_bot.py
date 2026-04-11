@@ -198,15 +198,13 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     response = (
     f"🎮 **{name}**\n"
     f"🆔 `{manager_id}`\n"
-    f"📅 انضم : {joined}\n"
-    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    f"📅 انضم: {joined}\n"
     f"📊 **الجولة {gameweek}**\n"
-    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    f"⭐ نقاط الجولة    : *{calculated_event_points}*\n"
-    f"🏆 النقاط الكلية  : *{total_points}*\n"
-    f"📈 الترتيب العالمي : *{rank_str}*\n"
-    f"🔄 انتقالات الجولة : *{total_transfers}*\n"
-    f"📊 ترتيب الجولة   : *{event_rank_str}*\n\n"
+    f"⭐ نقاط الجولة: *{calculated_event_points}*\n"
+    f"🏆 النقاط الكلية: *{total_points}*\n"
+    f"📈 الترتيب العالمي: *{rank_str}*\n"
+    f"🔄 انتقالات الجولة: *{total_transfers}*\n"
+    f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
 )
 
     # ==========================================
@@ -235,7 +233,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
 
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n"
-        for idx, league in enumerate(classic_leagues[:5], 1):
+        for idx, league in enumerate(classic_leagues[:10], 1):
             league_name = safe_str(league.get("name", "غير معروف"))
             league_rank = league.get('entry_rank')
             if not league_rank:
@@ -243,7 +241,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             league_total = league.get('rank_count')
 
             if league_rank is not None and league_total is not None:
-                response += f"{idx}. {league_name}: {league_rank}/{league_total}\n"
+                response += f"{idx}. {league_name}: {league_rank} / {league_total}\n"
             elif league_rank is not None:
                 response += f"{idx}. {league_name}: الترتيب {league_rank}\n"
             else:
@@ -290,22 +288,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message_text.startswith('/start') or message_text.startswith('/help'):
         await update.message.reply_text(
         "🎮 **بوت مساعد الفانتاسي**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "✨ **كيف يعمل؟**\n"
         "• أرسل **رقم معرف المدرب**\n"
         "• سأعرض لك بيانات الجولة الحالية تلقائياً\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "📊 **البيانات المتاحة**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "✓ نقاط الجولة للمدرب\n"
         "✓ النقاط الكلية والترتيب العالمي\n"
         "✓ نقاط كل لاعب في الفريق\n"
         "✓ نقاط الكابتن\n"
         "✓ ترتيب المدرب في كل دوري\n"
-        "✓ تاريخ المواسم السابقة\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "🔑 **كيف تحصل على معرف مدرب؟**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "افتح موقع FPL، الرقم في الرابط:\n"
         "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
         "📝 **مثال:** أرسل `2794801`",
