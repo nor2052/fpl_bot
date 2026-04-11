@@ -145,14 +145,14 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"  # <-- أضف هذا السطر
 
     response = (
-        f"🎮 **{name}**\n"
-        f"🆔 المعرف: `{manager_id}`\n\n"
-        f"📊 **العرض البسيط - الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{event_points}*\n"
-        f"🏆 النقاط الكلية: *{total_points}*\n"
-        f"📈 الترتيب العالمي: *{rank_str}*\n"
-        f"📊 ترتيب الجولة: *{event_rank_str}*\n"  # <-- أضف هذا السطر
-    )
+    f"🎮 **{name}**\n"
+    f"🆔 `{manager_id}`\n"
+    f"📊 **الجولة {gameweek}**\n"
+    f"⭐ نقاط الجولة    : *{event_points}*\n"
+    f"🏆 النقاط الكلية  : *{total_points}*\n"
+    f"📈 الترتيب العالمي : *{rank_str}*\n"
+    f"📊 ترتيب الجولة   : *{event_rank_str}*\n"
+)
 
     if captain_name:
         response += f"👑 الكابتن ({captain_name}): *{captain_points}* نقطة\n"
@@ -196,16 +196,18 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
 
     response = (
-        f"🎮 **{name}**\n"
-        f"🆔 المعرف: `{manager_id}`\n"
-        f"📅 انضم: {joined}\n\n"
-        f"📊 **العرض المفصل - الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{calculated_event_points}*\n"
-        f"🏆 النقاط الكلية: *{total_points}*\n"
-        f"📈 الترتيب العالمي: *{rank_str}*\n"
-        f"🔄 انتقالات الجولة: *{total_transfers}*\n"
-        f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
-    )
+    f"🎮 **{name}**\n"
+    f"🆔 `{manager_id}`\n"
+    f"📅 انضم : {joined}\n"
+    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    f"📊 **الجولة {gameweek}**\n"
+    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    f"⭐ نقاط الجولة    : *{calculated_event_points}*\n"
+    f"🏆 النقاط الكلية  : *{total_points}*\n"
+    f"📈 الترتيب العالمي : *{rank_str}*\n"
+    f"🔄 انتقالات الجولة : *{total_transfers}*\n"
+    f"📊 ترتيب الجولة   : *{event_rank_str}*\n\n"
+)
 
     # ==========================================
     # عرض لاعبي الفريق مع نقاطهم (نستخدم نفس live_points_map)
@@ -287,23 +289,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if message_text.startswith('/start') or message_text.startswith('/help'):
         await update.message.reply_text(
-            "🎮 **بوت مساعد الفانتاسي التفاعلي - النسخة النهائية**\n\n"
-            "✨ **كيف يعمل؟**\n"
-            "1️⃣ أرسل **رقم معرف المدرب**\n"
-            "2️⃣ سيظهر لك بيانات **آخر جولة لعبت** تلقائياً\n\n"
-            "📊 **البيانات المتاحة:**\n"
-            "✓ نقاط الجولة للمدرب\n"
-            "✓ النقاط الكلية والترتيب العالمي\n"
-            "✓ **نقاط كل لاعب في الفريق**\n"
-            "✓ **نقاط الكابتن في العرض البسيط**\n"
-            "✓ **ترتيب المدرب في كل دوري**\n"
-            "✓ تاريخ المواسم السابقة\n\n"
-            "🔑 **كيف تحصل على معرف مدرب؟**\n"
-            "افتح موقع FPL، الرقم في الرابط:\n"
-            "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
-            "📝 **مثال:** أرسل `2794801`",
-            parse_mode='Markdown'
-        )
+        "🎮 **بوت مساعد الفانتاسي**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "✨ **كيف يعمل؟**\n"
+        "• أرسل **رقم معرف المدرب**\n"
+        "• سأعرض لك بيانات الجولة الحالية تلقائياً\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📊 **البيانات المتاحة**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "✓ نقاط الجولة للمدرب\n"
+        "✓ النقاط الكلية والترتيب العالمي\n"
+        "✓ نقاط كل لاعب في الفريق\n"
+        "✓ نقاط الكابتن\n"
+        "✓ ترتيب المدرب في كل دوري\n"
+        "✓ تاريخ المواسم السابقة\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🔑 **كيف تحصل على معرف مدرب؟**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "افتح موقع FPL، الرقم في الرابط:\n"
+        "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
+        "📝 **مثال:** أرسل `2794801`",
+        parse_mode='Markdown'
+)
         return
 
     try:
