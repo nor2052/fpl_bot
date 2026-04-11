@@ -150,8 +150,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     f"⭐ <b>نقاط الجولة:</b> <code>{event_points}</code>\n"
     f"🏆 <b>النقاط الكلية:</b> <code>{total_points}</code>\n"
     f"📈 <b>الترتيب العالمي:</b> <code>{rank_str}</code>\n"
-    f"📊 <b>ترتيب الجولة:</b> <code>{event_rank_str}</code>\n",
-    parse_mode='HTML'
+    f"📊 <b>ترتيب الجولة:</b> <code>{event_rank_str}</code>\n"
 )
     
     if captain_name:
@@ -204,8 +203,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     f"🏆 <b>النقاط الكلية:</b> <code>{total_points}</code>\n"
     f"📈 <b>الترتيب العالمي:</b> <code>{rank_str}</code>\n"
     f"🔄 <b>انتقالات الجولة:</b> <code>{total_transfers}</code>\n"
-    f"📊 <b>ترتيب الجولة:</b> <code>{event_rank_str}</code>\n\n",
-    parse_mode='HTML'
+    f"📊 <b>ترتيب الجولة:</b> <code>{event_rank_str}</code>\n\n"
 )
     
     # ==========================================
