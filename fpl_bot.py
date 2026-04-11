@@ -76,6 +76,21 @@ def get_last_played_gameweek():
                 return event["id"]
     return 1
 
+def get_current_gameweek():
+    """الحصول على رقم الجولة الحالية (الجاري لعبها الآن)"""
+    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_current_gameweek")
+    if data and "events" in data:
+        for event in data["events"]:
+            if event.get("is_current"):
+                logger.info(f"📅 الجولة الحالية: {event['id']}")
+                return event["id"]
+        # إذا لم تكن هناك جولة حالية، نأخذ أقرب جولة مستقبلية
+        for event in data["events"]:
+            if event.get("is_next"):
+                logger.info(f"📅 الجولة القادمة: {event['id']}")
+                return event["id"]
+    return 1
+
 def get_next_gameweek(current_gw):
     next_gw = current_gw + 1
     return next_gw if next_gw <= 38 else 1
@@ -86,8 +101,8 @@ def get_previous_gameweek(current_gw):
 
 # ----------------------------- تحميل البيانات الأساسية -----------------------------
 players_dict = get_players_dict()
-last_gameweek = get_last_played_gameweek()
-print(f"📅 آخر جولة لعبت: {last_gameweek}")
+current_gameweek = get_current_gameweek()
+print(f"📅 آخر جولة لعبت: {current_gameweek}")
 
 # ----------------------------- دوال مساعدة -----------------------------
 def safe_int(value):
@@ -102,12 +117,10 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     name = safe_str(info.get("name"))
     total_points = safe_int(info.get("summary_overall_points"))
     
-    # ==========================================
-    # حساب نقاط الجولة من نقاط اللاعبين (بدون دالة منفصلة)
-    # ==========================================
     live_points_map = get_live_points(gameweek)
     
     event_points = 0
+    event_rank = 0  # <-- أضف هذا السطر
     captain_points = 0
     captain_name = ""
     
@@ -121,13 +134,20 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
             if pick.get("is_captain"):
                 captain_points = actual_points * multiplier
                 captain_name = players_dict.get(player_id, f"لاعب {player_id}")
-
+        
+        # <-- أضف هذا الجزء لجلب ترتيب الجولة
+        if "entry_history" in picks_data:
+            event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
+    
+    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"  # <-- أضف هذا السطر
+    
     response = (
         f"🎮 **{name}**\n"
         f"🆔 المعرف: `{manager_id}`\n\n"
         f"📊 **العرض البسيط - الجولة {gameweek}**\n"
         f"⭐ نقاط الجولة: *{event_points}*\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
+        f"📊 ترتيب الجولة: *{event_rank_str}*\n"  # <-- أضف هذا السطر
     )
     
     if captain_name:
@@ -302,7 +322,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     name = safe_str(info.get("name"))
-    start_gameweek = last_gameweek
+    start_gameweek = current_gameweek
     
     await update.message.reply_text(
         f"✅ تم العثور على المدرب **{name}**!\n📅 سيتم عرض بيانات **الجولة {start_gameweek}** (آخر جولة لعبت)\n\n🔄 جاري تحميل البيانات...",
@@ -385,7 +405,7 @@ def main():
     
     print("=" * 50)
     print("🤖 البوت يعمل الآن (مع حساب نقاط الجولة من نقاط اللاعبين)")
-    print(f"📅 آخر جولة لعبت: {last_gameweek}")
+    print(f"📅 آخر جولة لعبت: {current_gameweek}")
     print("✅ تم إصلاح: نقاط الجولة تحسب من نقاط اللاعبين مباشرة")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
