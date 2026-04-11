@@ -279,7 +279,7 @@ def get_buttons(manager_id, gameweek, current_view):
         ],
         [
             InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
-            InlineKeyboardButton("➡️ الجولة القادمة", callback_data=f"nav_{manager_id}_{next_gw}")
+            InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -330,7 +330,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_gameweek = current_gameweek
 
     await update.message.reply_text(
-        f"✅ تم العثور على المدرب **{name}**!\n📅 سيتم عرض بيانات **الجولة {start_gameweek}** (آخر جولة لعبت)\n\n🔄 جاري تحميل البيانات...",
+        f"✅ تم العثور على المدرب **{name}**!\n📅 سيتم عرض بيانات **الجولة {start_gameweek}** (الجولة الحالية)\n\n🔄 جاري تحميل البيانات...",
         parse_mode='Markdown'
     )
 
