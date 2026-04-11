@@ -233,7 +233,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
 
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n"
-        for idx, league in enumerate(classic_leagues[:15], 1):
+        for idx, league in enumerate(classic_leagues[:20], 1):
             league_name = safe_str(league.get("name", "غير معروف"))
             league_rank = league.get('entry_rank')
             if not league_rank:
