@@ -106,32 +106,43 @@ def safe_str(value):
 def format_simple_display(manager_id, info, gameweek, picks_data):
     name = safe_str(info.get("name"))
     total_points = safe_int(info.get("summary_overall_points"))
+    rank = safe_int(info.get("summary_overall_rank"))
+    # ==========================================
+    # الطريقة الجديدة: حساب نقاط الجولة من النقاط الفردية للاعبين
+    # ==========================================
+    live_points_map = get_live_points(gameweek)
     
     event_points = 0
-    if picks_data and "entry_history" in picks_data:
-        event_points = safe_int(picks_data["entry_history"].get("points", 0))
-    
     captain_points = 0
     captain_name = ""
+    event_rank = 0
     
     if picks_data and "picks" in picks_data:
-        live_points_map = get_live_points(gameweek)
-        for pick in picks_data["picks"]:
+        for pick in picks_data["picks"][:11]:  # اللاعبين الأساسيين فقط
+            player_id = pick.get("element")
+            actual_points = live_points_map.get(player_id, 0)
+            multiplier = pick.get("multiplier", 1)
+            event_points += actual_points * multiplier
+            
             if pick.get("is_captain"):
-                player_id = pick.get("element")
-                player_name = players_dict.get(player_id, f"لاعب {player_id}")
-                actual_points = live_points_map.get(player_id, 0)
-                multiplier = pick.get("multiplier", 1)
                 captain_points = actual_points * multiplier
-                captain_name = player_name
-                break
+                captain_name = players_dict.get(player_id, f"لاعب {player_id}")
 
+        if "entry_history" in picks_data:
+            event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
+            # لا نستخدم points من entry_history لأنها غير محدثة
+            total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
+    
+    rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
+    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
+    
     response = (
         f"🎮 **{name}**\n"
         f"🆔 المعرف: `{manager_id}`\n\n"
         f"📊 **العرض البسيط - الجولة {gameweek}**\n"
         f"⭐ نقاط الجولة: *{event_points}*\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
+        f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
     
     if captain_name:
@@ -140,7 +151,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
         response += f"👑 نقاط الكابتن: *{captain_points}*\n"
     
     return response
-
+    
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     name = safe_str(info.get("name"))
     joined = safe_str(info.get("joined_time", ""))[:10]
@@ -150,14 +161,28 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
     
-    event_points = 0
-    event_rank = 0
+    # ==========================================
+    # حساب نقاط الجولة من النقاط الفردية للاعبين (حل المشكلة)
+    # ==========================================
+    live_points_map = get_live_points(gameweek)
+    calculated_event_points = 0
+    
+    # متغيرات إضافية للعرض المفصل
     total_transfers = safe_int(info.get("total_transfers"))
-    if picks_data and "entry_history" in picks_data:
-        entry_history = picks_data["entry_history"]
-        event_points = safe_int(entry_history.get("points", 0))
-        event_rank = safe_int(entry_history.get("rank", 0))
-        total_transfers = safe_int(entry_history.get("event_transfers", total_transfers))
+    event_rank = 0
+    
+    if picks_data and "picks" in picks_data:
+        for pick in picks_data["picks"][:11]:
+            player_id = pick.get("element")
+            actual_points = live_points_map.get(player_id, 0)
+            multiplier = pick.get("multiplier", 1)
+            calculated_event_points += actual_points * multiplier
+        
+        # محاولة جلب الترتيب من entry_history إذا كان متاحاً (لأنه لا يمكن حسابه)
+        if "entry_history" in picks_data:
+            event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
+            # لا نستخدم points من entry_history لأنها غير محدثة
+            total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
     
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
@@ -167,7 +192,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"🆔 المعرف: `{manager_id}`\n"
         f"📅 انضم: {joined}\n\n"
         f"📊 **العرض المفصل - الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{event_points}*\n"
+        f"⭐ نقاط الجولة: *{calculated_event_points}*\n"  # <-- هنا نستخدم القيمة المحسوبة
         f"🏆 النقاط الكلية: *{total_points}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"🔄 انتقالات الجولة: *{total_transfers}*\n"
@@ -253,7 +278,7 @@ def get_buttons(manager_id, gameweek, current_view):
         ],
         [
             InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
-            InlineKeyboardButton("➡️ الجولة القادمة", callback_data=f"nav_{manager_id}_{next_gw}")
+            InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -267,12 +292,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✨ **كيف يعمل؟**\n"
             "1️⃣ أرسل **رقم معرف المدرب**\n"
             "2️⃣ سيظهر لك بيانات **آخر جولة لعبت** تلقائياً\n\n"
-            "📊 **جميع البيانات متاحة الآن:**\n"
             "✓ نقاط الجولة للمدرب\n"
             "✓ النقاط الكلية والترتيب العالمي\n"
             "✓ **نقاط كل لاعب في الفريق**\n"
             "✓ **نقاط الكابتن في العرض البسيط**\n"
-            "✓ **ترتيب المدرب في كل دوري (تم الإصلاح نهائياً)**\n"
+            "✓ **ترتيب المدرب في كل دوري**\n"
             "✓ تاريخ المواسم السابقة\n\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
