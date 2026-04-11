@@ -45,8 +45,13 @@ def get_manager_history(manager_id):
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/history/", "get_manager_history")
 
 def get_manager_picks(manager_id, gameweek):
-    return safe_api_request(f"{BASE_URL}/entry/{manager_id}/event/{gameweek}/picks/", "get_manager_picks")
-
+    """جلب تشكيلة المدرب في جولة معينة"""
+    logger.info(f"📡 جلب تشكيلة المدرب {manager_id} للجولة {gameweek}")
+    result = safe_api_request(f"{BASE_URL}/entry/{manager_id}/event/{gameweek}/picks/", "get_manager_picks")
+    if result is None:
+        logger.warning(f"⚠️ فشل في جلب تشكيلة المدرب {manager_id} للجولة {gameweek}")
+    return result
+    
 def get_live_points(gameweek):
     """جلب النقاط الحية لجميع اللاعبين - لا نزال نحتاجها لنقاط اللاعبين"""
     url = f"{BASE_URL}/event/{gameweek}/live/"
@@ -348,9 +353,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة الضغط على الأزرار - دعم متعدد المستخدمين"""
+    """معالجة الضغط على الأزرار - دعم متعدد المستخدمين مع معالجة الأخطاء"""
     query = update.callback_query
-    await query.answer()  # مهم جداً
+    
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.error(f"فشل في answer callback: {e}")
     
     data = query.data
     chat_id = query.message.chat_id
@@ -359,6 +368,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = data.split("_")
     
     if len(parts) < 3:
+        logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
     
     # استخدم manager_id من user_data إذا كان متاحاً، وإلا استخدمه من callback_data
@@ -369,96 +379,113 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             manager_id = parts[1]
         except IndexError:
             await context.bot.edit_message_text(
-                text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى.",
+                text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى باستخدام /start",
                 chat_id=chat_id,
                 message_id=message_id,
                 parse_mode='Markdown'
             )
             return
     
-    # معالجة أزرار التنقل (nav)
-    if parts[0] == "nav":
-        gameweek = int(parts[2])
-        
-        current_text = query.message.text
-        view_type = "simple" if "العرض البسيط" in current_text else "detail"
-        
-        # إظهار مؤقت التحميل
-        await context.bot.edit_message_text(
-            text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=None
-        )
-        
-        info = get_manager_info(manager_id)
-        if not info:
+    try:
+        # معالجة أزرار التنقل (nav)
+        if parts[0] == "nav":
+            gameweek = int(parts[2])
+            
+            current_text = query.message.text
+            view_type = "simple" if "العرض البسيط" in current_text else "detail"
+            
+            # إظهار مؤقت التحميل
             await context.bot.edit_message_text(
-                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    parse_mode='Markdown'
+                )
+                return
+            
+            picks_data = get_manager_picks(manager_id, gameweek)
+            
+            if view_type == "simple":
+                text = format_simple_display(manager_id, info, gameweek, picks_data)
+            else:
+                text = format_detailed_display(manager_id, info, gameweek, picks_data, get_manager_history(manager_id))
+            
+            reply_markup = get_buttons(manager_id, gameweek, view_type)
+            
+            await context.bot.edit_message_text(
+                text=text,
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+            return
+        
+        # معالجة أزرار العرض (simple/detail)
+        elif parts[0] in ["simple", "detail"]:
+            view_type = parts[0]
+            gameweek = int(parts[2])
+            
+            # إظهار مؤقت التحميل
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري تحميل { 'العرض البسيط' if view_type == 'simple' else 'العرض المفصل' } للجولة {gameweek}...",
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    parse_mode='Markdown'
+                )
+                return
+            
+            picks_data = get_manager_picks(manager_id, gameweek)
+            
+            if view_type == "simple":
+                text = format_simple_display(manager_id, info, gameweek, picks_data)
+            else:
+                text = format_detailed_display(manager_id, info, gameweek, picks_data, get_manager_history(manager_id))
+            
+            reply_markup = get_buttons(manager_id, gameweek, view_type)
+            
+            await context.bot.edit_message_text(
+                text=text,
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+            return
+        
+        else:
+            logger.warning(f"نوع أمر غير معروف: {parts[0]}")
+            
+    except Exception as e:
+        logger.error(f"خطأ في معالجة callback: {e}")
+        # محاولة إرسال رسالة خطأ للمستخدم
+        try:
+            await context.bot.edit_message_text(
+                text=f"❌ حدث خطأ أثناء تحميل البيانات: {str(e)[:100]}\n\nيرجى المحاولة مرة أخرى بإرسال معرف المدرب.",
                 chat_id=chat_id,
                 message_id=message_id,
                 parse_mode='Markdown'
             )
-            return
-        
-        picks_data = get_manager_picks(manager_id, gameweek)
-        
-        if view_type == "simple":
-            text = format_simple_display(manager_id, info, gameweek, picks_data)
-        else:
-            text = format_detailed_display(manager_id, info, gameweek, picks_data, get_manager_history(manager_id))
-        
-        reply_markup = get_buttons(manager_id, gameweek, view_type)
-        
-        await context.bot.edit_message_text(
-            text=text,
-            chat_id=chat_id,
-            message_id=message_id,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
-        return
-    
-    # معالجة أزرار العرض (simple/detail)
-    if parts[0] in ["simple", "detail"]:
-        view_type = parts[0]
-        gameweek = int(parts[2])
-        
-        # إظهار مؤقت التحميل
-        await context.bot.edit_message_text(
-            text=f"🔄 جاري تحميل { 'العرض البسيط' if view_type == 'simple' else 'العرض المفصل' } للجولة {gameweek}...",
-            chat_id=chat_id,
-            message_id=message_id,
-            reply_markup=None
-        )
-        
-        info = get_manager_info(manager_id)
-        if not info:
-            await context.bot.edit_message_text(
-                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                chat_id=chat_id,
-                message_id=message_id,
-                parse_mode='Markdown'
-            )
-            return
-        
-        picks_data = get_manager_picks(manager_id, gameweek)
-        
-        if view_type == "simple":
-            text = format_simple_display(manager_id, info, gameweek, picks_data)
-        else:
-            text = format_detailed_display(manager_id, info, gameweek, picks_data, get_manager_history(manager_id))
-        
-        reply_markup = get_buttons(manager_id, gameweek, view_type)
-        
-        await context.bot.edit_message_text(
-            text=text,
-            chat_id=chat_id,
-            message_id=message_id,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
-        return
+        except Exception as edit_error:
+            logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
 # ----------------------------- تشغيل البوت -----------------------------
 
 def main():
