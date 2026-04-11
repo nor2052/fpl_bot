@@ -210,17 +210,14 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     # عرض لاعبي الفريق مع نقاطهم (نستخدم نفس live_points_map)
     # ==========================================
     if picks_data and "picks" in picks_data:
-        response += "🧑‍🤝‍🧑 **لاعبو الفريق (الأساسيون):**\n"
+        if picks_data and "picks" in picks_data:
+        response += "<b>🧑‍🤝‍🧑 لاعبو الفريق (الأساسيون):</b>\n"
         for idx, pick in enumerate(picks_data["picks"][:11], 1):
-            player_id = pick.get("element")
             player_name = players_dict.get(player_id, f"لاعب {player_id}")
-            actual_points = live_points_map.get(player_id, 0)
-            multiplier = pick.get("multiplier", 1)
             display_points = actual_points * multiplier
             is_captain = " 👑 (C)" if pick.get("is_captain") else ""
             is_vice = " (VC)" if pick.get("is_vice_captain") else ""
-            response += f"{idx}. {player_name}{is_captain}{is_vice}: {display_points} نقطة\n"
-        response += "\n"
+            response += f"{idx}. <code>{player_name}</code>{is_captain}{is_vice}: <b>{display_points}</b> نقطة\n"
     else:
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
     
@@ -231,21 +228,18 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     classic_leagues = leagues.get("classic", [])
     
     if classic_leagues:
-        response += "🏅 **المجموعات (الدوريات):**\n"
+        response += "<b>🏅 المجموعات (الدوريات):</b>\n"
         for idx, league in enumerate(classic_leagues[:5], 1):
-            league_name = safe_str(league.get("name", "غير معروف"))
+            league_name = league.get('name', 'غير معروف')
             league_rank = league.get('entry_rank')
-            if not league_rank:
-                league_rank = league.get('rank')
             league_total = league.get('rank_count')
             
-            if league_rank is not None and league_total is not None:
-                response += f"{idx}. {league_name}: {league_rank}/{league_total}\n"
-            elif league_rank is not None:
-                response += f"{idx}. {league_name}: الترتيب {league_rank}\n"
+            if league_rank and league_total:
+                response += f"{idx}. <b>{league_name}</b>: <code>{league_rank}/{league_total}</code>\n"
+            elif league_rank:
+                response += f"{idx}. <b>{league_name}</b>: الترتيب <code>{league_rank}</code>\n"
             else:
-                response += f"{idx}. {league_name}\n"
-        response += "\n"
+                response += f"{idx}. <b>{league_name}</b>\n"
     else:
         response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
     
@@ -253,14 +247,13 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     # عرض تاريخ المواسم السابقة
     # ==========================================
     if history and "past" in history and history["past"]:
-        response += "📜 **آخر 3 مواسم:**\n"
+        response += "<b>📜 آخر 3 مواسم:</b>\n"
         for season in history["past"][-3:]:
-            season_name = safe_str(season.get("season_name"))
-            season_points = safe_int(season.get("total_points"))
-            season_rank = safe_int(season.get("rank"))
-            season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
-            response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
-    
+            season_name = season.get('season_name')
+            season_points = season.get('total_points')
+            season_rank = season.get('rank')
+            response += f"• <b>{season_name}</b>: <code>{season_points}</code> نقطة (ترتيب <code>{season_rank:,}</code>)\n"
+            
     return response
 
 # ----------------------------- دوال الأزرار ومعالجات البوت -----------------------------
