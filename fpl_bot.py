@@ -118,15 +118,25 @@ def safe_str(value):
 
 # ----------------------------- دوال عرض المعلومات -----------------------------
 
+def sanitize_markdown(text):
+    """إزالة الأحرف التي قد تعطل تنسيق Markdown"""
+    if not text:
+        return "غير معروف"
+    # استبدال الأحرف الخاصة
+    dangerous_chars = ['*', '_', '`', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in dangerous_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
 def format_simple_display(manager_id, info, gameweek, picks_data):
-    name = safe_str(info.get("name"))
+    name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
 
     live_points_map = get_live_points(gameweek)
 
     event_points = 0
-    event_rank = 0  # <-- أضف هذا السطر
+    event_rank = 0
     captain_points = 0
     captain_name = ""
 
@@ -139,25 +149,23 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
 
             if pick.get("is_captain"):
                 captain_points = actual_points * multiplier
-                captain_name = players_dict.get(player_id, f"لاعب {player_id}")
+                captain_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
 
-        # <-- أضف هذا الجزء لجلب ترتيب الجولة
         if "entry_history" in picks_data:
             event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
-    
 
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
-    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"  # <-- أضف هذا السطر
+    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
 
     response = (
-    f"🎮 **{name}**\n"
-    f"🆔 `{manager_id}`\n"
-    f"📊 **الجولة {gameweek}**\n"
-    f"⭐ نقاط الجولة: *{event_points}*\n"
-    f"🏆 النقاط الكلية: *{total_points}*\n"
-    f"📈 الترتيب العالمي: *{rank_str}*\n"
-    f"📊 ترتيب الجولة: *{event_rank_str}*\n"
-)
+        f"🎮 **{name}**\n"
+        f"🆔 `{manager_id}`\n"
+        f"📊 **الجولة {gameweek}**\n"
+        f"⭐ نقاط الجولة: *{event_points}*\n"
+        f"🏆 النقاط الكلية: *{total_points}*\n"
+        f"📈 الترتيب العالمي: *{rank_str}*\n"
+        f"📊 ترتيب الجولة: *{event_rank_str}*\n"
+    )
 
     if captain_name:
         response += f"👑 الكابتن ({captain_name}): *{captain_points}* نقطة\n"
@@ -167,7 +175,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     return response
 
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
-    name = safe_str(info.get("name"))
+    name = sanitize_markdown(safe_str(info.get("name")))
     joined = safe_str(info.get("joined_time", ""))[:10]
     if joined == "" or joined == "None":
         joined = "غير معروف"
@@ -175,9 +183,6 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
 
-    # ==========================================
-    # حساب نقاط الجولة من نقاط اللاعبين (اقتراحك الأسهل)
-    # ==========================================
     live_points_map = get_live_points(gameweek)
 
     calculated_event_points = 0
@@ -185,14 +190,12 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     event_rank = 0
 
     if picks_data and "picks" in picks_data:
-        # حساب مجموع نقاط الجولة من اللاعبين الأساسيين
         for pick in picks_data["picks"][:11]:
             player_id = pick.get("element")
             actual_points = live_points_map.get(player_id, 0)
             multiplier = pick.get("multiplier", 1)
             calculated_event_points += actual_points * multiplier
 
-        # جلب باقي البيانات من entry_history إذا كانت متاحة
         if "entry_history" in picks_data:
             event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
             total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
@@ -201,25 +204,23 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
 
     response = (
-    f"🎮 **{name}**\n"
-    f"🆔 `{manager_id}`\n"
-    f"📅 انضم: {joined}\n"
-    f"📊 **الجولة {gameweek}**\n"
-    f"⭐ نقاط الجولة: *{calculated_event_points}*\n"
-    f"🏆 النقاط الكلية: *{total_points}*\n"
-    f"📈 الترتيب العالمي: *{rank_str}*\n"
-    f"🔄 انتقالات الجولة: *{total_transfers}*\n"
-    f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
-)
+        f"🎮 **{name}**\n"
+        f"🆔 `{manager_id}`\n"
+        f"📅 انضم: {joined}\n"
+        f"📊 **الجولة {gameweek}**\n"
+        f"⭐ نقاط الجولة: *{calculated_event_points}*\n"
+        f"🏆 النقاط الكلية: *{total_points}*\n"
+        f"📈 الترتيب العالمي: *{rank_str}*\n"
+        f"🔄 انتقالات الجولة: *{total_transfers}*\n"
+        f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
+    )
 
-    # ==========================================
-    # عرض لاعبي الفريق مع نقاطهم (نستخدم نفس live_points_map)
-    # ==========================================
+    # عرض لاعبي الفريق
     if picks_data and "picks" in picks_data:
         response += "🧑‍🤝‍🧑 **لاعبو الفريق (الأساسيون):**\n"
         for idx, pick in enumerate(picks_data["picks"][:11], 1):
             player_id = pick.get("element")
-            player_name = players_dict.get(player_id, f"لاعب {player_id}")
+            player_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
             actual_points = live_points_map.get(player_id, 0)
             multiplier = pick.get("multiplier", 1)
             display_points = actual_points * multiplier
@@ -230,16 +231,14 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     else:
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
 
-    # ==========================================
-    # عرض المجموعات مع الترتيب (باستخدام entry_rank)
-    # ==========================================
+    # عرض المجموعات
     leagues = info.get("leagues", {})
     classic_leagues = leagues.get("classic", [])
 
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n"
         for idx, league in enumerate(classic_leagues[:20], 1):
-            league_name = safe_str(league.get("name", "غير معروف"))
+            league_name = sanitize_markdown(safe_str(league.get("name", "غير معروف")))
             league_rank = league.get('entry_rank')
             if not league_rank:
                 league_rank = league.get('rank')
@@ -257,20 +256,17 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     else:
         response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
 
-    # ==========================================
     # عرض تاريخ المواسم السابقة
-    # ==========================================
     if history and "past" in history and history["past"]:
         response += "📜 **آخر 3 مواسم:**\n"
         for season in history["past"][-3:]:
-            season_name = safe_str(season.get("season_name"))
+            season_name = sanitize_markdown(safe_str(season.get("season_name")))
             season_points = safe_int(season.get("total_points"))
             season_rank = safe_int(season.get("rank"))
             season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
             response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
 
     return response
-
 # ----------------------------- دوال الأزرار ومعالجات البوت -----------------------------
 
 def get_buttons(manager_id, gameweek, current_view):
