@@ -39,19 +39,16 @@ def safe_api_request(url, debug_name="API Request"):
     return None
 
 def get_manager_info(manager_id):
-    """جلب المعلومات الأساسية لمدرب - تحتوي على entry_rank للدوريات"""
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/", "get_manager_info")
 
 def get_manager_history(manager_id):
-    """جلب تاريخ المدرب"""
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/history/", "get_manager_history")
 
 def get_manager_picks(manager_id, gameweek):
-    """جلب تشكيلة المدرب في جولة معينة"""
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/event/{gameweek}/picks/", "get_manager_picks")
 
 def get_live_points(gameweek):
-    """جلب النقاط الحية أو النهائية لجميع اللاعبين في جولة معينة"""
+    """جلب النقاط الحية لجميع اللاعبين - لا نزال نحتاجها لنقاط اللاعبين"""
     url = f"{BASE_URL}/event/{gameweek}/live/"
     data = safe_api_request(url, "get_live_points")
     live_points = {}
@@ -62,7 +59,6 @@ def get_live_points(gameweek):
     return live_points
 
 def get_players_dict():
-    """جلب أسماء جميع اللاعبين"""
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_dict")
     players = {}
     if data and "elements" in data:
@@ -72,7 +68,6 @@ def get_players_dict():
     return players
 
 def get_last_played_gameweek():
-    """تحديد آخر جولة انتهت فعلاً"""
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_last_played_gameweek")
     if data and "events" in data:
         for event in reversed(data["events"]):
@@ -107,24 +102,25 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     name = safe_str(info.get("name"))
     total_points = safe_int(info.get("summary_overall_points"))
     
-    event_points = 0
-    if picks_data and "entry_history" in picks_data:
-        event_points = safe_int(picks_data["entry_history"].get("points", 0))
+    # ==========================================
+    # حساب نقاط الجولة من نقاط اللاعبين (بدون دالة منفصلة)
+    # ==========================================
+    live_points_map = get_live_points(gameweek)
     
+    event_points = 0
     captain_points = 0
     captain_name = ""
     
     if picks_data and "picks" in picks_data:
-        live_points_map = get_live_points(gameweek)
-        for pick in picks_data["picks"]:
+        for pick in picks_data["picks"][:11]:
+            player_id = pick.get("element")
+            actual_points = live_points_map.get(player_id, 0)
+            multiplier = pick.get("multiplier", 1)
+            event_points += actual_points * multiplier
+            
             if pick.get("is_captain"):
-                player_id = pick.get("element")
-                player_name = players_dict.get(player_id, f"لاعب {player_id}")
-                actual_points = live_points_map.get(player_id, 0)
-                multiplier = pick.get("multiplier", 1)
                 captain_points = actual_points * multiplier
-                captain_name = player_name
-                break
+                captain_name = players_dict.get(player_id, f"لاعب {player_id}")
 
     response = (
         f"🎮 **{name}**\n"
@@ -150,14 +146,27 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
     
-    event_points = 0
-    event_rank = 0
+    # ==========================================
+    # حساب نقاط الجولة من نقاط اللاعبين (اقتراحك الأسهل)
+    # ==========================================
+    live_points_map = get_live_points(gameweek)
+    
+    calculated_event_points = 0
     total_transfers = safe_int(info.get("total_transfers"))
-    if picks_data and "entry_history" in picks_data:
-        entry_history = picks_data["entry_history"]
-        event_points = safe_int(entry_history.get("points", 0))
-        event_rank = safe_int(entry_history.get("rank", 0))
-        total_transfers = safe_int(entry_history.get("event_transfers", total_transfers))
+    event_rank = 0
+    
+    if picks_data and "picks" in picks_data:
+        # حساب مجموع نقاط الجولة من اللاعبين الأساسيين
+        for pick in picks_data["picks"][:11]:
+            player_id = pick.get("element")
+            actual_points = live_points_map.get(player_id, 0)
+            multiplier = pick.get("multiplier", 1)
+            calculated_event_points += actual_points * multiplier
+        
+        # جلب باقي البيانات من entry_history إذا كانت متاحة
+        if "entry_history" in picks_data:
+            event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
+            total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
     
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
@@ -167,7 +176,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"🆔 المعرف: `{manager_id}`\n"
         f"📅 انضم: {joined}\n\n"
         f"📊 **العرض المفصل - الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{event_points}*\n"
+        f"⭐ نقاط الجولة: *{calculated_event_points}*\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"🔄 انتقالات الجولة: *{total_transfers}*\n"
@@ -175,11 +184,9 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     )
     
     # ==========================================
-    # عرض لاعبي الفريق مع نقاطهم
+    # عرض لاعبي الفريق مع نقاطهم (نستخدم نفس live_points_map)
     # ==========================================
     if picks_data and "picks" in picks_data:
-        live_points_map = get_live_points(gameweek)
-        
         response += "🧑‍🤝‍🧑 **لاعبو الفريق (الأساسيون):**\n"
         for idx, pick in enumerate(picks_data["picks"][:11], 1):
             player_id = pick.get("element")
@@ -195,7 +202,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
     
     # ==========================================
-    # عرض المجموعات مع الترتيب (الحل الجديد من الخبير)
+    # عرض المجموعات مع الترتيب (باستخدام entry_rank)
     # ==========================================
     leagues = info.get("leagues", {})
     classic_leagues = leagues.get("classic", [])
@@ -204,16 +211,9 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         response += "🏅 **المجموعات (الدوريات):**\n"
         for idx, league in enumerate(classic_leagues[:5], 1):
             league_name = safe_str(league.get("name", "غير معروف"))
-            
-            # الحل السحري: نأخذ الترتيب مباشرة من بيانات المدرب!
-            # entry_rank هو ترتيب المدرب في هذا الدوري
             league_rank = league.get('entry_rank')
-            
-            # إذا لم يتوفر entry_rank، نحاول الحصول عليه من حقل rank (احتياطياً)
             if not league_rank:
                 league_rank = league.get('rank')
-            
-            # عدد المشاركين في الدوري
             league_total = league.get('rank_count')
             
             if league_rank is not None and league_total is not None:
@@ -267,12 +267,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✨ **كيف يعمل؟**\n"
             "1️⃣ أرسل **رقم معرف المدرب**\n"
             "2️⃣ سيظهر لك بيانات **آخر جولة لعبت** تلقائياً\n\n"
-            "📊 **جميع البيانات متاحة الآن:**\n"
+            "📊 **البيانات المتاحة:**\n"
             "✓ نقاط الجولة للمدرب\n"
             "✓ النقاط الكلية والترتيب العالمي\n"
             "✓ **نقاط كل لاعب في الفريق**\n"
             "✓ **نقاط الكابتن في العرض البسيط**\n"
-            "✓ **ترتيب المدرب في كل دوري (تم الإصلاح نهائياً)**\n"
+            "✓ **ترتيب المدرب في كل دوري**\n"
             "✓ تاريخ المواسم السابقة\n\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
@@ -384,10 +384,9 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     print("=" * 50)
-    print("🤖 البوت يعمل الآن (مع حل الخبير - entry_rank)")
+    print("🤖 البوت يعمل الآن (مع حساب نقاط الجولة من نقاط اللاعبين)")
     print(f"📅 آخر جولة لعبت: {last_gameweek}")
-    print("✅ تم إصلاح ترتيب الدوريات بشكل نهائي")
-    print("🚀 أسرع وأكثر استقراراً - طلب API واحد فقط")
+    print("✅ تم إصلاح: نقاط الجولة تحسب من نقاط اللاعبين مباشرة")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
     
