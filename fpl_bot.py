@@ -148,10 +148,10 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     f"🎮 **{name}**\n"
     f"🆔 `{manager_id}`\n"
     f"📊 **الجولة {gameweek}**\n"
-    f"⭐ نقاط الجولة    : *{event_points}*\n"
-    f"🏆 النقاط الكلية  : *{total_points}*\n"
-    f"📈 الترتيب العالمي : *{rank_str}*\n"
-    f"📊 ترتيب الجولة   : *{event_rank_str}*\n"
+    f"⭐ نقاط الجولة: *{event_points}*\n"
+    f"🏆 النقاط الكلية: *{total_points}*\n"
+    f"📈 الترتيب العالمي: *{rank_str}*\n"
+    f"📊 ترتيب الجولة: *{event_rank_str}*\n"
 )
 
     if captain_name:
@@ -233,7 +233,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
 
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n"
-        for idx, league in enumerate(classic_leagues[:10], 1):
+        for idx, league in enumerate(classic_leagues[:15], 1):
             league_name = safe_str(league.get("name", "غير معروف"))
             league_rank = league.get('entry_rank')
             if not league_rank:
@@ -241,7 +241,9 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             league_total = league.get('rank_count')
 
             if league_rank is not None and league_total is not None:
-                response += f"{idx}. {league_name}: {league_rank} / {league_total}\n"
+                league_rank_str = f"{league_rank:,}"
+                league_total_str = f"{league_total:,}"
+                response += f"{idx}. {league_name}: {league_rank_str} / {league_total_str}\n"
             elif league_rank is not None:
                 response += f"{idx}. {league_name}: الترتيب {league_rank}\n"
             else:
