@@ -254,12 +254,12 @@ def format_leagues_display(manager_id, info, gameweek, history):
         f"📊 **الجولة {gameweek}**\n"
     )
     
-    # عرض المجموعات
+        # عرض المجموعات
     leagues = info.get("leagues", {})
     classic_leagues = leagues.get("classic", [])
 
     if classic_leagues:
-        response += "🏅 **المجموعات (الدوريات):**\n"
+        response += "🏅 **المجموعات (الدوريات):**\n\n"
         for idx, league in enumerate(classic_leagues[:20], 1):
             league_name = sanitize_markdown(safe_str(league.get("name", "غير معروف")))
             league_rank = league.get('entry_rank')
@@ -270,26 +270,25 @@ def format_leagues_display(manager_id, info, gameweek, history):
             if league_rank is not None and league_total is not None:
                 league_rank_str = f"{league_rank:,}"
                 league_total_str = f"{league_total:,}"
-                response += f"{idx}. {league_name}: {league_rank_str} / {league_total_str}\n"
+                response += f"{idx}. {league_name}: {league_rank_str} / {league_total_str}\n\n"
             elif league_rank is not None:
-                response += f"{idx}. {league_name}: الترتيب {league_rank}\n"
+                response += f"{idx}. {league_name}: الترتيب {league_rank}\n\n"
             else:
-                response += f"{idx}. {league_name}\n"
-        response += "\n"
+                response += f"{idx}. {league_name}\n\n"
     else:
         response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
 
     # عرض تاريخ المواسم السابقة
     if history and "past" in history and history["past"]:
-        response += "📜 **المواسم السابقة:**\n"
+        response += "📜 **المواسم السابقة:**\n\n"
         for season in history["past"][-5:]:  # آخر 5 مواسم
             season_name = sanitize_markdown(safe_str(season.get("season_name")))
             season_points = safe_int(season.get("total_points"))
             season_rank = safe_int(season.get("rank"))
             season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
-            response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
+            response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n\n"
     else:
-        response += "📜 **المواسم السابقة:** لا يوجد تاريخ للمواسم السابقة\n"
+        response += "📜 **المواسم السابقة:** لا يوجد تاريخ للمواسم السابقة\n\n"
 
     return response
 # ----------------------------- دوال الأزرار ومعالجات البوت -----------------------------
