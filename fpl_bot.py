@@ -252,7 +252,6 @@ def format_leagues_display(manager_id, info, gameweek, history):
         f"🎮 {name}\n"
         f"🆔 `{manager_id}`\n"
         f"📊 **الجولة {gameweek}**\n"
-        f"{'─' * 30}\n\n"
     )
     
     # عرض المجموعات
@@ -293,7 +292,6 @@ def format_leagues_display(manager_id, info, gameweek, history):
         response += "📜 **المواسم السابقة:** لا يوجد تاريخ للمواسم السابقة\n"
 
     return response
-
 # ----------------------------- دوال الأزرار ومعالجات البوت -----------------------------
 
 def get_buttons(manager_id, gameweek, current_view):
@@ -327,9 +325,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 **البيانات المتاحة**\n"
         "✓ نقاط الجولة للمدرب\n"
         "✓ النقاط الكلية والترتيب العالمي\n"
-        "✓ نقاط كل لاعب في الفريق (أساسي واحتياط)\n"
+        "✓ نقاط كل لاعب في الفريق\n"
         "✓ نقاط الكابتن\n"
-        "✓ ترتيب المدرب في كل دوري (زر منفصل)\n"
+        "✓ ترتيب المدرب في كل دوري\n"
+        "✓ تاريخ المواسم السابقة\n"    
         "🔑 **كيف تحصل على معرف مدرب؟**\n"
         "افتح موقع FPL، الرقم في الرابط:\n"
         "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
