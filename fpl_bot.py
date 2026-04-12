@@ -184,9 +184,20 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
     
-    # القيمة المالية
-    team_value = safe_int(info.get("value")) / 10  # القيمة بوحدة 0.1m
-    bank_value = safe_int(info.get("bank")) / 10   # القيمة بوحدة 0.1m
+    # ========== القسم المصحح: استخراج القيمة المالية ==========
+    team_value = 0.0
+    bank_value = 0.0
+    total_value_display = 0.0
+    
+    if picks_data and "entry_history" in picks_data:
+        history_info = picks_data["entry_history"]
+        raw_total_value = safe_int(history_info.get("value", 0))  # القيمة الكلية (تشكيلة + بنك)
+        raw_bank = safe_int(history_info.get("bank", 0))          # البنك فقط
+        
+        bank_value = raw_bank / 10
+        team_value = (raw_total_value - raw_bank) / 10
+        total_value_display = raw_total_value / 10
+    # =====================================================
 
     live_points_map = get_live_points(gameweek)
 
@@ -220,13 +231,16 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
     
-    # إضافة القيمة المالية
-    response += (
-        f"💰 **المالية:**\n"
-        f"• قيمة التشكيلة: *£{team_value:.1f}m*\n"
-        f"• البنك: *£{bank_value:.1f}m*\n\n"
-    )
-
+    # ========== عرض القيمة المالية ==========
+    if team_value > 0 or bank_value > 0:
+        response += (
+            f"💰 **المالية:**\n"
+            f"• قيمة التشكيلة: *£{team_value:.1f}m*\n"
+            f"• البنك: *£{bank_value:.1f}m*\n"
+            f"• الإجمالي: *£{total_value_display:.1f}m*\n\n"
+        )
+    # ======================================
+    
     # الحصول على بيانات اللاعبين الكاملة لمعرفة مراكزهم
     players_full_data = {}
     bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_full_data")
@@ -242,7 +256,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     
     # عرض لاعبي الفريق الأساسيين
     if picks_data and "picks" in picks_data:
-        response += "🧑‍🤝‍🧑 **اللاعبون الأساسيون:**\n"
+        response += "🧑‍🤝‍🧑 **اللاعبون الأساسيون:**\n\n"
         
         # تجميع اللاعبين حسب المركز
         players_by_position = {1: [], 2: [], 3: [], 4: []}
@@ -276,7 +290,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         
         # عرض اللاعبين البدلاء (الاحتياط)
         if len(picks_data["picks"]) > 11:
-            response += "\n🔄 **اللاعبون البدلاء:**\n"
+            response += "\n🔄 **اللاعبون البدلاء:**\n\n"
             
             # تجميع البدلاء حسب المركز
             subs_by_position = {1: [], 2: [], 3: [], 4: []}
@@ -299,11 +313,11 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             counter = 1
             for pos in [1, 2, 3, 4]:
                 if subs_by_position[pos]:
-                    response += f"\n{position_names[pos]}:\n"
+                    response += f"{position_names[pos]}:\n"
                     for player_text in subs_by_position[pos]:
                         response += f"{counter}. {player_text}\n"
                         counter += 1
-        response += " "
+        response += "\n"
     else:
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
 
