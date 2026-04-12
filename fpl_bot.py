@@ -175,6 +175,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     return response
 
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
+    """عرض مفصل يتضمن معلومات أساسية + اللاعبين الأساسيين + اللاعبين البدلاء فقط"""
     name = sanitize_markdown(safe_str(info.get("name")))
     joined = safe_str(info.get("joined_time", ""))[:10]
     if joined == "" or joined == "None":
@@ -215,22 +216,45 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
 
-    # عرض لاعبي الفريق
+    # عرض لاعبي الفريق الأساسيين
     if picks_data and "picks" in picks_data:
-        response += "🧑‍🤝‍🧑 **لاعبو الفريق (الأساسيون):**\n"
+        response += "🧑‍🤝‍🧑 **اللاعبون الأساسيون:**\n"
         for idx, pick in enumerate(picks_data["picks"][:11], 1):
             player_id = pick.get("element")
             player_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
             actual_points = live_points_map.get(player_id, 0)
             multiplier = pick.get("multiplier", 1)
             display_points = actual_points * multiplier
-            is_captain = " 👑 (C)" if pick.get("is_captain") else ""
+            is_captain = " 👑" if pick.get("is_captain") else ""
             is_vice = " (VC)" if pick.get("is_vice_captain") else ""
             response += f"{idx}. {player_name}{is_captain}{is_vice}: {display_points} نقطة\n"
+        
+        # عرض اللاعبين البدلاء (الاحتياط)
+        if len(picks_data["picks"]) > 11:
+            response += "\n🔄 **اللاعبون البدلاء:**\n"
+            for idx, pick in enumerate(picks_data["picks"][11:], 1):
+                player_id = pick.get("element")
+                player_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
+                actual_points = live_points_map.get(player_id, 0)
+                response += f"{idx}. {player_name}: {actual_points} نقطة\n"
         response += "\n"
     else:
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
 
+    return response
+
+def format_leagues_display(manager_id, info, gameweek, history):
+    """عرض منفصل للمجموعات والدوريات والمواسم السابقة"""
+    name = sanitize_markdown(safe_str(info.get("name")))
+    
+    response = (
+        f"🏆 **الدوريات والمواسم**\n"
+        f"🎮 {name}\n"
+        f"🆔 `{manager_id}`\n"
+        f"📊 **الجولة {gameweek}**\n"
+        f"{'─' * 30}\n\n"
+    )
+    
     # عرض المجموعات
     leagues = info.get("leagues", {})
     classic_leagues = leagues.get("classic", [])
@@ -258,15 +282,18 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
 
     # عرض تاريخ المواسم السابقة
     if history and "past" in history and history["past"]:
-        response += "📜 **آخر 3 مواسم:**\n"
-        for season in history["past"][-3:]:
+        response += "📜 **المواسم السابقة:**\n"
+        for season in history["past"][-5:]:  # آخر 5 مواسم
             season_name = sanitize_markdown(safe_str(season.get("season_name")))
             season_points = safe_int(season.get("total_points"))
             season_rank = safe_int(season.get("rank"))
             season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
             response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
+    else:
+        response += "📜 **المواسم السابقة:** لا يوجد تاريخ للمواسم السابقة\n"
 
     return response
+
 # ----------------------------- دوال الأزرار ومعالجات البوت -----------------------------
 
 def get_buttons(manager_id, gameweek, current_view):
@@ -277,6 +304,9 @@ def get_buttons(manager_id, gameweek, current_view):
         [
             InlineKeyboardButton("📋 عرض بسيط", callback_data=f"simple_{manager_id}_{gameweek}"),
             InlineKeyboardButton("📊 عرض مفصل", callback_data=f"detail_{manager_id}_{gameweek}")
+        ],
+        [
+            InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}")
         ],
         [
             InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
@@ -297,9 +327,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📊 **البيانات المتاحة**\n"
         "✓ نقاط الجولة للمدرب\n"
         "✓ النقاط الكلية والترتيب العالمي\n"
-        "✓ نقاط كل لاعب في الفريق\n"
+        "✓ نقاط كل لاعب في الفريق (أساسي واحتياط)\n"
         "✓ نقاط الكابتن\n"
-        "✓ ترتيب المدرب في كل دوري\n"
+        "✓ ترتيب المدرب في كل دوري (زر منفصل)\n"
         "🔑 **كيف تحصل على معرف مدرب؟**\n"
         "افتح موقع FPL، الرقم في الرابط:\n"
         "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
@@ -310,7 +340,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         manager_id = int(message_text)
-        # ✅ أضف هذا السطر - حفظ معرف المدرب لهذا المستخدم
+        # حفظ معرف المدرب لهذا المستخدم
         context.user_data['current_manager_id'] = manager_id
     except ValueError:
         await update.message.reply_text(
@@ -318,9 +348,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
-
-    # ... (باقي الكود كما هو)
- 
 
     await update.message.reply_text(f"🔄 جاري التحقق من المعرف {manager_id}...")
 
@@ -343,8 +370,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     picks_data = get_manager_picks(manager_id, start_gameweek)
     text = format_simple_display(manager_id, info, start_gameweek, picks_data)
     reply_markup = get_buttons(manager_id, start_gameweek, "simple")
-
-    
 
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
 
@@ -388,7 +413,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gameweek = int(parts[2])
             
             current_text = query.message.text
-            view_type = "simple" if "العرض البسيط" in current_text else "detail"
+            # تحديد نوع العرض الحالي
+            if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
+                view_type = "detail"
+            elif "الدوريات" in current_text:
+                view_type = "leagues"
+            else:
+                view_type = "simple"
             
             # إظهار مؤقت التحميل
             await context.bot.edit_message_text(
@@ -412,8 +443,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if view_type == "simple":
                 text = format_simple_display(manager_id, info, gameweek, picks_data)
-            else:
+            elif view_type == "detail":
                 text = format_detailed_display(manager_id, info, gameweek, picks_data, get_manager_history(manager_id))
+            else:  # leagues
+                text = format_leagues_display(manager_id, info, gameweek, get_manager_history(manager_id))
             
             reply_markup = get_buttons(manager_id, gameweek, view_type)
             
@@ -426,14 +459,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # معالجة أزرار العرض (simple/detail)
-        elif parts[0] in ["simple", "detail"]:
+        # معالجة أزرار العرض (simple/detail/leagues)
+        elif parts[0] in ["simple", "detail", "leagues"]:
             view_type = parts[0]
             gameweek = int(parts[2])
             
+            # نصوص التحميل المناسبة
+            loading_texts = {
+                "simple": "العرض البسيط",
+                "detail": "العرض المفصل",
+                "leagues": "الدوريات والمواسم"
+            }
+            
             # إظهار مؤقت التحميل
             await context.bot.edit_message_text(
-                text=f"🔄 جاري تحميل { 'العرض البسيط' if view_type == 'simple' else 'العرض المفصل' } للجولة {gameweek}...",
+                text=f"🔄 جاري تحميل {loading_texts[view_type]} للجولة {gameweek}...",
                 chat_id=chat_id,
                 message_id=message_id,
                 reply_markup=None
@@ -453,8 +493,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if view_type == "simple":
                 text = format_simple_display(manager_id, info, gameweek, picks_data)
-            else:
+            elif view_type == "detail":
                 text = format_detailed_display(manager_id, info, gameweek, picks_data, get_manager_history(manager_id))
+            else:  # leagues
+                text = format_leagues_display(manager_id, info, gameweek, get_manager_history(manager_id))
             
             reply_markup = get_buttons(manager_id, gameweek, view_type)
             
@@ -482,6 +524,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as edit_error:
             logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
+
 # ----------------------------- تشغيل البوت -----------------------------
 
 def main():
@@ -492,9 +535,12 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
 
     print("=" * 50)
-    print("🤖 البوت يعمل الآن (مع حساب نقاط الجولة من نقاط اللاعبين)")
+    print("🤖 البوت يعمل الآن (الإصدار المحسن)")
     print(f"📅 آخر جولة لعبت: {current_gameweek}")
-    print("✅ تم إصلاح: نقاط الجولة تحسب من نقاط اللاعبين مباشرة")
+    print("✅ المميزات الجديدة:")
+    print("   • زر منفصل للدوريات والمواسم السابقة")
+    print("   • العرض المفصل يشمل اللاعبين الأساسيين والبدلاء")
+    print("   • تنقل سلس بين جميع العروض")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
 
