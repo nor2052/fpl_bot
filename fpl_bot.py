@@ -269,7 +269,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         counter = 1
         for pos in [1, 2, 3, 4]:
             if players_by_position[pos]:
-                response += f"\n{position_names[pos]}:\n"
+                response += f"{position_names[pos]}:\n"
                 for player_text in players_by_position[pos]:
                     response += f"{counter}. {player_text}\n"
                     counter += 1
@@ -303,7 +303,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                     for player_text in subs_by_position[pos]:
                         response += f"{counter}. {player_text}\n"
                         counter += 1
-        response += "\n"
+        response += " "
     else:
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
 
