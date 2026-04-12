@@ -175,7 +175,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     return response
 
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
-    """عرض مفصل يتضمن معلومات أساسية + اللاعبين الأساسيين + اللاعبين البدلاء فقط"""
+    """عرض مفصل يتضمن معلومات أساسية + اللاعبين الأساسيين + اللاعبين البدلاء + القيمة المالية"""
     name = sanitize_markdown(safe_str(info.get("name")))
     joined = safe_str(info.get("joined_time", ""))[:10]
     if joined == "" or joined == "None":
@@ -183,6 +183,10 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
 
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
+    
+    # القيمة المالية
+    team_value = safe_int(info.get("value")) / 10  # القيمة بوحدة 0.1m
+    bank_value = safe_int(info.get("bank")) / 10   # القيمة بوحدة 0.1m
 
     live_points_map = get_live_points(gameweek)
 
@@ -215,33 +219,97 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"🔄 انتقالات الجولة: *{total_transfers}*\n"
         f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
+    
+    # إضافة القيمة المالية
+    response += (
+        f"💰 **المالية:**\n"
+        f"• قيمة التشكيلة: *£{team_value:.1f}m*\n"
+        f"• البنك: *£{bank_value:.1f}m*\n\n"
+    )
 
+    # الحصول على بيانات اللاعبين الكاملة لمعرفة مراكزهم
+    players_full_data = {}
+    bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_full_data")
+    if bootstrap_data and "elements" in bootstrap_data:
+        for player in bootstrap_data["elements"]:
+            players_full_data[player["id"]] = {
+                "element_type": player.get("element_type"),  # 1=GK, 2=DEF, 3=MID, 4=FWD
+                "name": f"{player['first_name']} {player['second_name']}"
+            }
+
+    # قاموس ترجمة المراكز
+    position_names = {1: "🧤 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
+    
     # عرض لاعبي الفريق الأساسيين
     if picks_data and "picks" in picks_data:
         response += "🧑‍🤝‍🧑 **اللاعبون الأساسيون:**\n"
-        for idx, pick in enumerate(picks_data["picks"][:11], 1):
+        
+        # تجميع اللاعبين حسب المركز
+        players_by_position = {1: [], 2: [], 3: [], 4: []}
+        
+        for pick in picks_data["picks"][:11]:
             player_id = pick.get("element")
+            player_info = players_full_data.get(player_id, {})
+            position = player_info.get("element_type", 0)
             player_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
             actual_points = live_points_map.get(player_id, 0)
             multiplier = pick.get("multiplier", 1)
             display_points = actual_points * multiplier
             is_captain = " 👑" if pick.get("is_captain") else ""
             is_vice = " (VC)" if pick.get("is_vice_captain") else ""
-            response += f"{idx}. {player_name}{is_captain}{is_vice}: {display_points} نقطة\n"
+            
+            player_text = f"{player_name}{is_captain}{is_vice}: {display_points} نقطة"
+            
+            if position in players_by_position:
+                players_by_position[position].append(player_text)
+            else:
+                players_by_position[0].append(player_text)  # في حال عدم معرفة المركز
+        
+        # عرض اللاعبين حسب المركز مع ترقيم متسلسل
+        counter = 1
+        for pos in [1, 2, 3, 4]:
+            if players_by_position[pos]:
+                response += f"\n{position_names[pos]}:\n"
+                for player_text in players_by_position[pos]:
+                    response += f"{counter}. {player_text}\n"
+                    counter += 1
         
         # عرض اللاعبين البدلاء (الاحتياط)
         if len(picks_data["picks"]) > 11:
             response += "\n🔄 **اللاعبون البدلاء:**\n"
-            for idx, pick in enumerate(picks_data["picks"][11:], 1):
+            
+            # تجميع البدلاء حسب المركز
+            subs_by_position = {1: [], 2: [], 3: [], 4: []}
+            
+            for pick in picks_data["picks"][11:]:
                 player_id = pick.get("element")
+                player_info = players_full_data.get(player_id, {})
+                position = player_info.get("element_type", 0)
                 player_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
                 actual_points = live_points_map.get(player_id, 0)
-                response += f"{idx}. {player_name}: {actual_points} نقطة\n"
+                
+                player_text = f"{player_name}: {actual_points} نقطة"
+                
+                if position in subs_by_position:
+                    subs_by_position[position].append(player_text)
+                else:
+                    subs_by_position[0].append(player_text)
+            
+            # عرض البدلاء حسب المركز مع ترقيم متسلسل
+            counter = 1
+            for pos in [1, 2, 3, 4]:
+                if subs_by_position[pos]:
+                    response += f"\n{position_names[pos]}:\n"
+                    for player_text in subs_by_position[pos]:
+                        response += f"{counter}. {player_text}\n"
+                        counter += 1
         response += "\n"
     else:
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
 
     return response
+
+# انتهت دالة العرض المفصل والتالية هي دالة عرض الدوريات
 
 def format_leagues_display(manager_id, info, gameweek, history):
     """عرض منفصل للمجموعات والدوريات والمواسم السابقة"""
@@ -280,13 +348,13 @@ def format_leagues_display(manager_id, info, gameweek, history):
 
     # عرض تاريخ المواسم السابقة
     if history and "past" in history and history["past"]:
-        response += "📜 **المواسم السابقة:**\n\n"
+        response += "📜 **المواسم السابقة:**\n"
         for season in history["past"][-5:]:  # آخر 5 مواسم
             season_name = sanitize_markdown(safe_str(season.get("season_name")))
             season_points = safe_int(season.get("total_points"))
             season_rank = safe_int(season.get("rank"))
             season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
-            response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n\n"
+            response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
     else:
         response += "📜 **المواسم السابقة:** لا يوجد تاريخ للمواسم السابقة\n\n"
 
@@ -326,6 +394,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✓ النقاط الكلية والترتيب العالمي\n"
         "✓ نقاط كل لاعب في الفريق\n"
         "✓ نقاط الكابتن\n"
+        "✓ قيمة الفريق والبنك 💰\n"
         "✓ ترتيب المدرب في كل دوري\n"
         "✓ تاريخ المواسم السابقة\n"    
         "🔑 **كيف تحصل على معرف مدرب؟**\n"
