@@ -189,7 +189,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
     
     # إضافة إشارة للبنش بوست إذا كان مفعلاً
-    bb_indicator = " (BB 💺)" if active_chip == "bboost" else ""
+    bb_indicator = " (➕ البدلاء 💺)" if active_chip == "bboost" else ""
     
     # إشارة للتربل كابتن إذا كان مفعلاً
     tc_indicator = " 🔥×3" if active_chip == "3xc" else ""
@@ -273,62 +273,64 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
     # ==================================================
 
-    # ========== حالة البطاقات (CHIPS) مع معالجة نصف الموسم ==========
-    chips_status = ""
-    if history and "chips" in history:
-        used_chips = history["chips"]
+# ========== حالة البطاقات (CHIPS) المطور والمصحح - مع دعم نصف الموسم لجميع البطاقات ==========
+chips_status = ""
+if history and "chips" in history:
+    used_chips = history["chips"]
+    active_chip = picks_data.get("active_chip") if picks_data else None
+    
+    chips_info = {
+        "3xc": "👑 الكابتن الثلاثي (TC)",
+        "bboost": "💺 تفعيل الدكة (BB)",
+        "freehit": "🃏 الانتقالات المجانية (FH)",
+        "wildcard": "🛠 الوايلد كارد (WC)"
+    }
+    
+    chips_status = "🎭 **حالة البطاقات (Chips):**\n"
+    
+    for chip_key, chip_name in chips_info.items():
+        # البحث عن كافة مرات استخدام هذه البطاقة في التاريخ
+        all_usages = [c for c in used_chips if c['name'] == chip_key]
         
-        # تعريف البطاقات
-        chips_info = {
-            "3xc": "👑 الكابتن الثلاثي (TC)",
-            "bboost": "💺 تفعيل الدكة (BB)",
-            "freehit": "🃏 الانتقالات المجانية (FH)",
-            "wildcard": "🛠 الوايلد كارد (WC)"
-        }
-        
-        chips_status = "🎭 **حالة البطاقات (Chips):**\n"
-        
-        for chip_key, chip_name in chips_info.items():
-            # البحث عن استخدامات هذه البطاقة في التاريخ
-            # ملاحظة: الوايلد كارد قد تظهر مرتين في التاريخ إذا استخدمت في النصفين
-            all_usages = [c for c in used_chips if c['name'] == chip_key]
-            
-            # منطق التحقق من الاستخدام:
-            is_used_current_half = False
-            usage_event = None
+        is_used_in_current_half = False
+        usage_event = None
 
-            if chip_key == "wildcard":
-                # منطق الوايلد كارد: نتحقق من النصف الحالي
-                if gameweek <= 19:
-                    # نحن في النصف الأول: ابحث عن استخدام بين الجولة 1 و 19
-                    usage = next((c for c in all_usages if c['event'] <= 19), None)
-                else:
-                    # نحن في النصف الثاني: ابحث عن استخدام بعد الجولة 19
-                    usage = next((c for c in all_usages if c['event'] > 19), None)
-                
-                if usage:
-                    is_used_current_half = True
-                    usage_event = usage['event']
-            else:
-                # البطاقات الأخرى (تستخدم مرة واحدة فقط في الموسم)
-                if all_usages:
-                    is_used_current_half = True
-                    usage_event = all_usages[0]['event']
-
-            # العرض بناءً على الحالة
-            if active_chip == chip_key:
-                chips_status += f"• **{chip_name}: تلعب الآن 🟢**\n"
-            elif is_used_current_half:
-                # إذا استخدمت في النصف المعني (أو استخدمت مطلقاً للبطاقات الأخرى)
-                chips_status += f"• ~{chip_name}~: الجولة {usage_event} 🔴\n"
-            else:
-                # إذا لم تستخدم في النصف الحالي (للوايلد كارد) أو لم تستخدم مطلقاً (للآخرين)
-                chips_status += f"• _{chip_name}_: لم تلعب 🟡\n"
+        # ========== منطق تحديد استخدام البطاقة في نصف الموسم الحالي ==========
+        # جميع البطاقات يمكن استخدامها مرة واحدة فقط في الموسم
+        # ولكن API يعيد تاريخ جميع المواسم، لذلك نحدد بناءً على رقم الجولة المعروضة (gameweek)
         
-        chips_status += "\n"
-    else:
-        chips_status = "🎭 **حالة البطاقات (Chips):** لا توجد بيانات متاحة\n\n"
+        if gameweek <= 19:
+            # نحن في النصف الأول من الموسم (1-19)
+            # نبحث عن استخدام في النصف الأول فقط
+            usage = next((c for c in all_usages if c['event'] <= 19), None)
+        else:
+            # نحن في النصف الثاني من الموسم (20-38)
+            # نبحث عن استخدام في النصف الثاني فقط
+            usage = next((c for c in all_usages if c['event'] > 19), None)
+        
+        if usage:
+            is_used_in_current_half = True
+            usage_event = usage['event']
+        # ================================================================
 
+        # --- تحديد طريقة العرض النهائية ---
+        
+        # الحالة أ: البطاقة مفعّلة في الجولة الحالية التي يتصفحها المستخدم
+        if active_chip == chip_key:
+            chips_status += f"• **{chip_name}: تلعب الآن 🟢**\n"
+        
+        # الحالة ب: البطاقة استُخدمت في نصف الموسم الحالي
+        elif is_used_in_current_half:
+            chips_status += f"• ~{chip_name}~: الجولة {usage_event} 🔴\n"
+        
+        # الحالة ج: البطاقة لم تُستخدم بعد في نصف الموسم الحالي
+        else:
+            chips_status += f"• _{chip_name}_: لم تلعب 🟡\n"
+    
+    chips_status += "\n"
+else:
+    chips_status = "🎭 **حالة البطاقات (Chips):** لا توجد بيانات متاحة حالياً\n\n"
+    
     # ==========================================
 
 
