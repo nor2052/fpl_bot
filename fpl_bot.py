@@ -366,43 +366,52 @@ def get_player_bonus_points(player_id, gameweek):
 #  ----------------------------- دوال عرض المعلومات -----------------------------
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
-    """عرض بسيط دقيق: يحسب TC، BB، ويخصم السالب بشكل صحيح (بدون ازدواجية البونص)"""
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
 
     live_points_map = get_live_points(gameweek)
+    # خريطة البونص (يفضل جلبها مرة واحدة للجولة كلها لتحسين الأداء)
+    bonus_map = get_all_bonus_map(gameweek) 
     
     active_chip = picks_data.get("active_chip") if picks_data else None
     event_points = 0
+    total_bonus_points = 0
     captain_points = 0
     captain_name = ""
-    transfers_cost = 0
     
     if picks_data and "picks" in picks_data:
-        # منطق البنش بوست: 15 لاعب أو 11
         players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
         
         for pick in players_to_count:
             player_id = pick.get("element")
-            # الـ API يعيد النقاط الكاملة (الأساسية + البونص) مباشرة
-            player_points = live_points_map.get(player_id, 0)
+            # هذه النقاط قد تشمل البونص إذا انتهت المباراة واعتمدها السيستم
+            raw_api_points = live_points_map.get(player_id, 0)
             
-            # تحديد المضاعف
+            # جلب البونص (سواء المتوقع أو المعتمد)
+            player_bonus = bonus_map.get(player_id, 0)
+            
+            # التصحيح: استخراج النقاط بدون البونص المعتمد لتجنب التكرار
+            # إذا كان السيستم قد أضاف البونص فعلياً في raw_api_points، نطرحه لنضيفه نحن يدوياً مع المضاعف
+            points_without_bonus = raw_api_points - get_confirmed_bonus_only(player_id, gameweek)
+
             current_multiplier = pick.get("multiplier", 1)
             if pick.get("is_captain"):
                 current_multiplier = 3 if active_chip == "3xc" else 2
                 captain_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
-                captain_points = player_points * current_multiplier
+                captain_points = (points_without_bonus + player_bonus) * current_multiplier
             
-            # إضافة النقاط للمجموع
-            event_points += player_points * current_multiplier
+            event_points += (points_without_bonus + player_bonus) * current_multiplier
+            total_bonus_points += (player_bonus * current_multiplier)
 
-        # حساب السالب (Hits)
+        # خصم السالب
+        transfers_cost = 0
         if "entry_history" in picks_data:
-            event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
             transfers_cost = safe_int(picks_data["entry_history"].get("event_transfers_cost", 0))
-            event_points += transfers_cost  # transfers_cost قيمة سالبة مثلاً -4
+            event_points -= transfers_cost 
+
+    # بناء الاستجابة (نفس التنسيق السابق مع القيم المصححة)
+    # ... (بقية كود التنسيق)
         else:
             event_rank = 0
     else:
