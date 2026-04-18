@@ -345,18 +345,17 @@ def format_fixtures_by_day(fixtures, teams_dict, gameweek_num):
 
 
 
-#  دالة جلب نقاط البونص
+#   دالة جلب نقاط البونص
 
-    def get_player_bonus_points(player_id, gameweek):
+
+def get_player_bonus_points(player_id, gameweek):
     """جلب نقاط البونص للاعب في جولة محددة"""
     try:
-        # استخدام نفس بيانات live_points ولكن مع إضافة البونص
         url = f"{BASE_URL}/event/{gameweek}/live/"
         data = safe_api_request(url, "get_player_bonus")
         if data and "elements" in data:
             for element in data["elements"]:
                 if element["id"] == player_id:
-                    # البونص موجود في stats.bonus
                     return element.get("stats", {}).get("bonus", 0)
         return 0
     except Exception as e:
@@ -364,7 +363,7 @@ def format_fixtures_by_day(fixtures, teams_dict, gameweek_num):
         return 0
 
 
-# ----------------------------- دوال عرض المعلومات -----------------------------
+#  ----------------------------- دوال عرض المعلومات -----------------------------
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
     """عرض بسيط دقيق: يحسب TC، BB، البونص، ويخصم السالب بشكل صحيح"""
