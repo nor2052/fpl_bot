@@ -366,73 +366,76 @@ def get_player_bonus_points(player_id, gameweek):
 #  ----------------------------- دوال عرض المعلومات -----------------------------
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
-    """عرض بسيط دقيق: يحسب TC، BB، ويخصم السالب بشكل صحيح (بدون ازدواجية البونص)"""
+    """عرض بسيط دقيق: يعالج TC، BB، السالب، وعدد الانتقالات بوضوح"""
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
 
+    # جلب النقاط الحية (التي تتضمن البونص المعتمد لحظة الطلب)
     live_points_map = get_live_points(gameweek)
     
     active_chip = picks_data.get("active_chip") if picks_data else None
     event_points = 0
     captain_points = 0
     captain_name = ""
+    
+    # تفاصيل الانتقالات
+    transfers_made = 0
     transfers_cost = 0
     
     if picks_data and "picks" in picks_data:
-        # منطق البنش بوست: 15 لاعب أو 11
+        # 1. منطق البنش بوست
         players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
         
         for pick in players_to_count:
             player_id = pick.get("element")
-            # الـ API يعيد النقاط الكاملة (الأساسية + البونص) مباشرة
+            # النقاط من الـ API (تشمل البونص بمجرد انتهاء المباراة)
             player_points = live_points_map.get(player_id, 0)
             
-            # تحديد المضاعف
+            # 2. منطق المضاعف (التربل كابتن والعادي)
             current_multiplier = pick.get("multiplier", 1)
             if pick.get("is_captain"):
+                # نضمن الضرب في 3 إذا كانت البطاقة TC
                 current_multiplier = 3 if active_chip == "3xc" else 2
                 captain_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
                 captain_points = player_points * current_multiplier
             
-            # إضافة النقاط للمجموع
-            event_points += player_points * current_multiplier
+            # إضافة النقاط المحسوبة للمجموع
+            event_points += (player_points * current_multiplier)
 
-        # حساب السالب (Hits)
+        # 3. حساب ومعالجة الانتقالات (السالب)
         if "entry_history" in picks_data:
-            event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
-            transfers_cost = safe_int(picks_data["entry_history"].get("event_transfers_cost", 0))
-            event_points += transfers_cost  # transfers_cost قيمة سالبة مثلاً -4
-        else:
-            event_rank = 0
-    else:
-        event_rank = 0
+            history = picks_data["entry_history"]
+            transfers_made = safe_int(history.get("event_transfers", 0))
+            transfers_cost = safe_int(history.get("event_transfers_cost", 0)) # قيمة موجبة من API
+            
+            # إنقاص السالب من مجموع نقاط الجولة فوراً
+            event_points -= transfers_cost 
 
-    # التنسيق النهائي للعرض
-    hit_display = f" (📉 {transfers_cost})" if transfers_cost < 0 else ""
+    # 4. تنسيق سطر الانتقالات المطلوبة
+    # إذا كان هناك سالب يظهر بصيغة: 🔄 الانتقالات: 2 (-4)
+    transfer_line = f"🔄 الانتقالات: *{transfers_made}*"
+    if transfers_cost > 0:
+        transfer_line += f" (-{transfers_cost})"
+
+    # تنسيق الإضافات المرئية
     tc_indicator = " 🔥×3" if active_chip == "3xc" else ""
     bb_indicator = " 💺" if active_chip == "bboost" else ""
     
-    # عرض البطاقة النشطة
-    chip_display = ""
-    if active_chip:
-        chip_names = {
-            "3xc": "الكابتن الثلاثي",
-            "bboost": "تفعيل الدكة",
-            "freehit": "الانتقالات المجانية",
-            "wildcard": "الوايلد كارد"
-        }
-        chip_display = f"\n🎭 بطاقة نشطة: **{chip_names.get(active_chip, active_chip)}**{bb_indicator}"
-
     response = (
         f"🎮 **{name}**\n"
         f"🆔 `{manager_id}` | 📊 **جولة {gameweek}**\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"⭐️ نقاط الجولة: **{event_points}**{hit_display}\n"
+        f"⭐️ نقاط الجولة: **{event_points}**\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
         f"📈 الترتيب: *{rank:,}*\n"
-        f"👑 الكابتن: {captain_name} (*{captain_points}*){tc_indicator}{chip_display}\n"
+        f"{transfer_line}\n"
+        f"👑 الكابتن: {captain_name} (*{captain_points}*){tc_indicator}\n"
     )
+
+    if active_chip:
+        chip_names = {"3xc": "TC", "bboost": "BB", "freehit": "FH", "wildcard": "WC"}
+        response += f"🎭 بطاقة نشطة: **{chip_names.get(active_chip, active_chip)}**{bb_indicator}\n"
 
     return response
 
