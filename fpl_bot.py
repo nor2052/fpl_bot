@@ -1,11 +1,11 @@
 import os
 import logging
 import requests
-import pytz
 import calendar
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
+
 
 # تفعيل تسجيل الأخطاء
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -187,19 +187,26 @@ def sanitize_markdown(text):
     return text
 
 def format_match_time(kickoff_time):
-    """تنسيق وقت المباراة بتوقيت مكة المكرمة"""
+    """تنسيق وقت المباراة بتوقيت مكة المكرمة (UTC+3)"""
     if not kickoff_time:
         return "توقيت غير محدد"
     
     try:
-        dt_utc = datetime.fromisoformat(kickoff_time.replace('Z', '+00:00'))
-        mecca_tz = pytz.timezone('Asia/Riyadh')
-        dt_mecca = dt_utc.astimezone(mecca_tz)
+        # تحويل الوقت إلى توقيت UTC
+        if kickoff_time.endswith('Z'):
+            kickoff_time = kickoff_time.replace('Z', '+00:00')
+        dt_utc = datetime.fromisoformat(kickoff_time)
+        
+        # إضافة 3 ساعات لتوقيت مكة المكرمة
+        dt_mecca = dt_utc + timedelta(hours=3)
+        
+        # تنسيق الوقت بصيغة 12 ساعة
         time_str = dt_mecca.strftime("%I:%M %p").lstrip('0').lower()
         return time_str
     except Exception as e:
         logger.warning(f"خطأ في تنسيق الوقت: {e}")
         return kickoff_time[:16] if kickoff_time else "توقيت غير محدد"
+
 
 def format_match_status(fixture):
     """تنسيق حالة المباراة (لم تبدأ / جارية / انتهت) مع دائرة ملونة"""
@@ -291,7 +298,11 @@ def format_fixtures_by_day(fixtures, teams_dict, gameweek_num):
             
             status = format_match_status(fixture)
             
-            response += f"• {match_time} | {team_h_display} {score_display} {team_a_display} | {status}\n"
+            # إضافة أهداف إضافية إذا كانت المباراة منتهية
+            if fixture.get("finished", False):
+                response += f"• {match_time} | {team_h_display} {score_display} {team_a_display} | {status}\n"
+            else:
+                response += f"• {match_time} | {team_h_display} {score_display} {team_a_display} | {status}\n"
         
         response += "\n"
     
@@ -629,8 +640,8 @@ def format_fixtures_display(manager_id, info, gameweek, history):
     fixtures = get_fixtures(gameweek)
     teams_dict = get_teams_dict()
     
-    mecca_tz = pytz.timezone('Asia/Riyadh')
-    now_mecca = datetime.now(mecca_tz)
+    # استخدام توقيت مكة المكرمة (UTC+3)
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
     update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
     update_date = now_mecca.strftime("%d/%m/%Y")
     
@@ -648,7 +659,7 @@ def format_fixtures_display(manager_id, info, gameweek, history):
     response += f"🕐 جميع الأوقات بتوقيت مكة المكرمة (UTC+3)"
     
     return response
-
+    
 # ----------------------------- دوال الأزرار ومعالجات البوت -----------------------------
 
 def get_buttons(manager_id, gameweek, current_view):
