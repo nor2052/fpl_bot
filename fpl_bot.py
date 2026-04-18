@@ -392,7 +392,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     live_points_map = get_live_points(gameweek)
     
     active_chip = picks_data.get("active_chip") if picks_data else None
-    event_points = 0
+    event_points_before_hits = 0  # النقاط قبل خصم السالب
     captain_points = 0
     captain_name = ""
     
@@ -417,23 +417,28 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
                 captain_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
                 captain_points = player_points * current_multiplier
             
-            # إضافة النقاط المحسوبة للمجموع
-            event_points += (player_points * current_multiplier)
+            # إضافة النقاط المحسوبة للمجموع (قبل الخصم)
+            event_points_before_hits += (player_points * current_multiplier)
 
         # 3. حساب ومعالجة الانتقالات (السالب)
         if "entry_history" in picks_data:
             history = picks_data["entry_history"]
             transfers_made = safe_int(history.get("event_transfers", 0))
             transfers_cost = safe_int(history.get("event_transfers_cost", 0)) # قيمة موجبة من API
-            
-            # إنقاص السالب من مجموع نقاط الجولة فوراً
-            event_points -= transfers_cost 
 
-    # 4. تنسيق سطر الانتقالات المطلوبة
-    # إذا كان هناك سالب يظهر بصيغة: 🔄 الانتقالات: 2 (-4)
+    # 4. حساب النقاط بعد الخصم
+    event_points_after_hits = event_points_before_hits - transfers_cost
+
+    # 5. تنسيق سطر الانتقالات المطلوبة
     transfer_line = f"🔄 الانتقالات: *{transfers_made}*"
     if transfers_cost > 0:
         transfer_line += f" (-{transfers_cost})"
+
+    # 6. تنسيق سطر نقاط الجولة (إظهار قبل وبعد الخصم)
+    if transfers_cost > 0:
+        points_display = f"**{event_points_after_hits}** ({event_points_before_hits})"
+    else:
+        points_display = f"**{event_points_before_hits}**"
 
     # تنسيق الإضافات المرئية
     tc_indicator = " 🔥×3" if active_chip == "3xc" else ""
@@ -443,7 +448,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
         f"🎮 **{name}**\n"
         f"🆔 `{manager_id}` | 📊 **جولة {gameweek}**\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"⭐️ نقاط الجولة: **{event_points}**\n"
+        f"⭐️ نقاط الجولة: {points_display}\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
         f"📈 الترتيب: *{rank:,}*\n"
         f"{transfer_line}\n"
@@ -459,7 +464,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
 #  نهاية دالة العرض البسيط ___________________________
 
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
-    """عرض مفصل شامل مع إحصائيات اللاعبين (أهداف، تمريرات، بطاقات، بونص)"""
+    """عرض مفصل شامل مع إحصائيات اللاعبين وإظهار النقاط قبل وبعد خصم الانتقالات"""
     name = sanitize_markdown(safe_str(info.get("name")))
     joined = safe_str(info.get("joined_time", ""))[:10]
     if joined == "" or joined == "None":
@@ -505,24 +510,18 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         p_data = full_live_data.get(p_id, {})
         stats = p_data.get('stats', {})
         
-        # 1. معالجة البونص المزدوج
         total_api_points = stats.get('total_points', 0)
         actual_bonus = stats.get('bonus', 0)
-        
         base_points = total_api_points - actual_bonus
         
         if actual_bonus > 0:
-            # تم الاعتماد: عرض النقاط النهائية فقط
             points_str = f"{total_api_points * multiplier}"
             final_p = total_api_points * multiplier
         else:
-            # لم يتم الاعتماد بعد: نعرض الحسبة
             points_str = f"({base_points * multiplier} + {actual_bonus * multiplier})" if actual_bonus > 0 else f"{base_points * multiplier}"
             final_p = total_api_points * multiplier
 
-        # 2. الأيقونات والإحصائيات
         events = []
-        # الهجوم
         goals = stats.get('goals_scored', 0)
         if goals > 0:
             events.append("⚽" * goals)
@@ -531,17 +530,14 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         if assists > 0:
             events.append("🅰️" * assists)
         
-        # الدفاع (الكلين شيت)
         clean_sheet = stats.get('clean_sheets', 0)
         if clean_sheet > 0:
             events.append("🛡️")
         
-        # الحراس (تصديات)
         saves = stats.get('saves', 0)
         if saves >= 3:
             events.append(f"🧤({saves})")
         
-        # البطاقات
         yellow = stats.get('yellow_cards', 0)
         if yellow > 0:
             events.append("🟨")
@@ -549,17 +545,14 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         if red > 0:
             events.append("🟥")
         
-        # أهداف في مرماه
         own_goals = stats.get('own_goals', 0)
         if own_goals > 0:
             events.append("🚫(OG)")
         
-        # ركلات جزاء ضائعة
         penalties_missed = stats.get('penalties_missed', 0)
         if penalties_missed > 0:
             events.append("❌(PK)")
         
-        # ركلات جزاء مسجلة (للحراس)
         penalties_saved = stats.get('penalties_saved', 0)
         if penalties_saved > 0:
             events.append("🧤(PK)")
@@ -568,7 +561,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         return points_str, final_p, status_icons
 
     # ========== حساب نقاط الجولة واللاعبين ==========
-    calculated_event_points = 0
+    event_points_before_hits = 0  # النقاط قبل خصم السالب
     total_transfers = safe_int(info.get("total_transfers"))
     event_rank = 0
     transfers_cost = 0
@@ -598,7 +591,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                         captain_display = vc_tag
                     
                     players_output += f"• {p_name} {captain_display} {p_icons}: **{p_pts_str}**\n"
-                    calculated_event_points += p_pts_val
+                    event_points_before_hits += p_pts_val
                 players_output += "\n"
         
         # ========== عرض اللاعبين البدلاء ==========
@@ -609,7 +602,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                 p_name = sanitize_markdown(players_dict.get(p_id, "Unknown"))
                 p_pts_str, p_pts_val, p_icons = get_player_status_and_points(p_id, 1, False)
                 players_output += f"• {p_name} {p_icons}: **{p_pts_str}**\n"
-                calculated_event_points += p_pts_val
+                event_points_before_hits += p_pts_val
             players_output += "\n"
         
         # ========== حساب السالب وترتيب الجولة ==========
@@ -617,8 +610,10 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
             transfers_cost = safe_int(picks_data["entry_history"].get("event_transfers_cost", 0))
             total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
-            calculated_event_points += transfers_cost  # إضافة الخصم السالب
     # ==================================================
+
+    # حساب النقاط بعد الخصم
+    event_points_after_hits = event_points_before_hits - transfers_cost
 
     # ========== حالة البطاقات (Chips) ==========
     chips_status = ""
@@ -667,9 +662,16 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     
     bb_indicator = " (تشمل البدلاء 💺)" if active_chip == "bboost" else ""
     
+    # تنسيق سطر الانتقالات
     transfers_text = f"🔄 انتقالات الجولة: *{total_transfers}*"
-    if transfers_cost < 0:
-        transfers_text += f" (خصم {transfers_cost})"
+    if transfers_cost > 0:
+        transfers_text += f" (-{transfers_cost})"
+    
+    # تنسيق سطر نقاط الجولة (إظهار قبل وبعد الخصم)
+    if transfers_cost > 0:
+        points_display = f"*{event_points_after_hits}* ({event_points_before_hits})"
+    else:
+        points_display = f"*{event_points_before_hits}*"
     # ==================================
 
     # ========== بناء الرد النهائي ==========
@@ -678,7 +680,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"🆔 `{manager_id}`\n"
         f"📅 انضم: {joined}\n"
         f"📊 **الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{calculated_event_points}*{bb_indicator}\n"
+        f"⭐ نقاط الجولة: {points_display}{bb_indicator}\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"{transfers_text}\n"
@@ -703,6 +705,9 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     response += players_output
     
     return response
+
+#  نهاية دالة العرض المفصل مع دوالها الفرعية 
+
 
 def format_leagues_display(manager_id, info, gameweek, history):
     """عرض منفصل للمجموعات والدوريات والمواسم السابقة"""
