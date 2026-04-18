@@ -363,6 +363,26 @@ def get_player_bonus_points(player_id, gameweek):
         return 0
 
 
+def get_full_live_data(gameweek):
+    """جلب بيانات جميع اللاعبين (نقاط + إحصائيات) لجولة محددة مع معالجة الأخطاء"""
+    url = f"{BASE_URL}/event/{gameweek}/live/"
+    data = safe_api_request(url, f"live_data_gw_{gameweek}")
+    
+    players_data = {}
+    if data and "elements" in data:
+        for element in data["elements"]:
+            p_id = element.get("id")
+            if p_id:
+                # نحفظ كائن stats بالكامل لأنه يحتوي على كل ما طلبته (goals, assists, bps, bonus...)
+                players_data[p_id] = {
+                    "stats": element.get("stats", {}),
+                    "explain": element.get("explain", []) # مفيد جداً إذا أردت لاحقاً معرفة تفاصيل أكثر
+                }
+    
+    # في حال فشل الـ API نرسل قاموساً فارغاً لتجنب توقف الكود (Crash)
+    return players_data
+
+
 #  ----------------------------- دوال عرض المعلومات -----------------------------
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
