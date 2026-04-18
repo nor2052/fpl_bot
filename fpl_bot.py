@@ -89,12 +89,14 @@ def get_teams_dict():
     """جلب قاموس بأسماء الفرق وأيقوناتها من API مباشرة مع إيموجيز ديناميكية"""
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_teams_dict")
     
-    # قاموس الإيموجيز المخصصة بناءً على الاسم (وليس الـ ID)
-    team_emojis_by_name = {
+    # قاموس الإيموجيز المخصصة بناءً على الاسم الكامل والاختصار
+    team_emojis = {
+        # الأسماء الكاملة
         "Arsenal": "🚀",
         "Aston Villa": "🏰",
         "Bournemouth": "🍒",
         "Brentford": "🐝",
+        "Brighton and Hove Albion": "🐦",
         "Brighton": "🐦",
         "Chelsea": "🦁",
         "Crystal Palace": "🦅",
@@ -113,7 +115,31 @@ def get_teams_dict():
         "Wolverhampton Wanderers": "🐱",
         "Leeds United": "🦚",
         "Burnley": "🧱",
-        "Sunderland": "🐈"
+        "Sunderland": "🐈",
+        # الاختصارات (لمنع ظهور ⚽)
+        "ARS": "🚀",
+        "AVL": "🏰",
+        "BOU": "🍒",
+        "BRE": "🐝",
+        "BHA": "🐦",
+        "CHE": "🦁",
+        "CRY": "🦅",
+        "EVE": "🍬",
+        "FUL": "🏁",
+        "IPS": "🚜",
+        "LEI": "🦊",
+        "LIV": "🐦‍🔥",
+        "MCI": "💎",
+        "MUN": "🔱",
+        "NEW": "🐦‍⬛",
+        "NFO": "🎋",
+        "SOU": "⚪",
+        "TOT": "🐔",
+        "WHU": "⚒️",
+        "WOL": "🐱",
+        "LEE": "🦚",
+        "BUR": "🧱",
+        "SUN": "🐈"
     }
     
     teams = {}
@@ -123,22 +149,26 @@ def get_teams_dict():
             team_name = team["name"]
             team_short_name = team["short_name"]
             
-            # البحث عن الإيموجي بناءً على الاسم الكامل
-            emoji = team_emojis_by_name.get(team_name, "⚽")
+            # البحث عن الإيموجي (بمحاولة استخدام الاسم الكامل أولاً، ثم الاختصار)
+            emoji = team_emojis.get(team_name)
+            if not emoji:
+                emoji = team_emojis.get(team_short_name, "⚽")
             
             teams[team_id] = {
                 "id": team_id,
                 "name": team_name,
                 "short_name": team_short_name,
-                "emoji": f"{emoji} {team_short_name}"  # إضافة الإيموجي مع الاختصار
+                "emoji": f"{emoji} {team_short_name}",
+                "emoji_only": emoji
             }
     
-    # طباعة للتصحيح (يمكن إزالتها لاحقاً)
+    # طباعة للتصحيح
     logger.info(f"🏆 تم تحميل {len(teams)} فريق")
     for tid, tinfo in teams.items():
-        logger.info(f"  {tid}: {tinfo['emoji']}")
+        logger.info(f"  {tid}: {tinfo['short_name']} -> {tinfo['emoji_only']}")
     
     return teams
+
 
 def get_last_played_gameweek():
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_last_played_gameweek")
@@ -292,12 +322,12 @@ def format_fixtures_by_day(fixtures, teams_dict, gameweek_num):
             team_a_score = fixture.get("team_a_score")
             
             # جلب معلومات الفريقين
-            team_h_info = teams_dict.get(team_h_id, {"emoji": "⚽", "short_name": f"فريق {team_h_id}"})
-            team_a_info = teams_dict.get(team_a_id, {"emoji": "⚽", "short_name": f"فريق {team_a_id}"})
+            team_h_info = teams_dict.get(team_h_id, {"emoji_only": "⚽", "short_name": f"فريق {team_h_id}"})
+            team_a_info = teams_dict.get(team_a_id, {"emoji_only": "⚽", "short_name": f"فريق {team_a_id}"})
             
-            # عرض الفريق المضيف أولاً (team_h) ثم الفريق الضيف (team_a)
-            team_h_display = team_h_info["emoji"]
-            team_a_display = team_a_info["emoji"]
+            # استخدام الإيموجي فقط بدون الاختصار
+            team_h_display = f"{team_h_info['emoji_only']} {team_h_info['short_name']}"
+            team_a_display = f"{team_a_info['emoji_only']} {team_a_info['short_name']}"
             
             # عرض النتيجة
             if team_h_score is not None and team_a_score is not None:
@@ -312,6 +342,7 @@ def format_fixtures_by_day(fixtures, teams_dict, gameweek_num):
         response += "\n"
     
     return response
+    
 # ----------------------------- دوال عرض المعلومات -----------------------------
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
