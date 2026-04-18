@@ -342,11 +342,32 @@ def format_fixtures_by_day(fixtures, teams_dict, gameweek_num):
         response += "\n"
     
     return response
-    
+
+
+
+#  دالة جلب نقاط البونص
+
+    def get_player_bonus_points(player_id, gameweek):
+    """جلب نقاط البونص للاعب في جولة محددة"""
+    try:
+        # استخدام نفس بيانات live_points ولكن مع إضافة البونص
+        url = f"{BASE_URL}/event/{gameweek}/live/"
+        data = safe_api_request(url, "get_player_bonus")
+        if data and "elements" in data:
+            for element in data["elements"]:
+                if element["id"] == player_id:
+                    # البونص موجود في stats.bonus
+                    return element.get("stats", {}).get("bonus", 0)
+        return 0
+    except Exception as e:
+        logger.warning(f"خطأ في جلب بونص اللاعب {player_id}: {e}")
+        return 0
+
+
 # ----------------------------- دوال عرض المعلومات -----------------------------
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
-    """عرض بسيط يتضمن المعلومات الأساسية ونقاط الجولة المحسوبة يدوياً (مع دعم البنش بوست والتربل كابتن)"""
+    """عرض بسيط دقيق: يحسب TC، BB، البونص، ويخصم السالب بشكل صحيح"""
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
@@ -355,67 +376,66 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     
     active_chip = picks_data.get("active_chip") if picks_data else None
     event_points = 0
+    total_bonus_points = 0
     captain_points = 0
     captain_name = ""
-    captain_multiplier = 1
     
     if picks_data and "picks" in picks_data:
+        # منطق البنش بوست: 15 لاعب أو 11
         players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
         
         for pick in players_to_count:
             player_id = pick.get("element")
             actual_points = live_points_map.get(player_id, 0)
-            multiplier = pick.get("multiplier", 1)
             
+            # جلب البونص
+            player_bonus = get_player_bonus_points(player_id, gameweek)
+            
+            # تحديد المضاعف (multiplier)
+            # ملاحظة: الـ multiplier في الـ API يكون 2 للكابتن و 3 للتربل تلقائياً
+            # لكن للحساب اليدوي الأدق نستخدم منطقك:
+            current_multiplier = pick.get("multiplier", 1)
             if pick.get("is_captain"):
-                if active_chip == "3xc":
-                    captain_multiplier = 3
-                else:
-                    captain_multiplier = 2
-                captain_points = actual_points * captain_multiplier
+                current_multiplier = 3 if active_chip == "3xc" else 2
                 captain_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
-                event_points += actual_points * captain_multiplier
-            else:
-                event_points += actual_points * multiplier
-        
+                captain_points = (actual_points + player_bonus) * current_multiplier
+            
+            # إضافة النقاط للمجموع (النقاط الأساسية + البونص) مضروبة في المضاعف
+            event_points += (actual_points + player_bonus) * current_multiplier
+            total_bonus_points += (player_bonus * current_multiplier)
+
+        # حساب السالب (Hits) - التصحيح هنا
+        transfers_cost = 0
         if "entry_history" in picks_data:
             event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
+            transfers_cost = safe_int(picks_data["entry_history"].get("event_transfers_cost", 0))
+            # الخصم الحقيقي من نقاط الجولة
+            event_points -= transfers_cost 
+        else:
+            event_rank = 0
     else:
         event_rank = 0
+        transfers_cost = 0
 
-    active_chip_display = ""
-    if active_chip:
-        chip_emojis = {
-            "3xc": "👑 الكابتن الثلاثي (TC)",
-            "bboost": "💺 تفعيل الدكة (BB)",
-            "freehit": "🃏 الانتقالات المجانية (FH)",
-            "wildcard": "🛠 الوايلد كارد (WC)"
-        }
-        chip_name = chip_emojis.get(active_chip, active_chip)
-        active_chip_display = f"🎭 البطاقة المفعلة: *{chip_name}*\n"
-
-    rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
-    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
-    
-    bb_indicator = " (➕ البدلاء 💺)" if active_chip == "bboost" else ""
+    # التنسيق النهائي للعرض
+    bonus_indicator = f" (🎁 +{total_bonus_points})" if total_bonus_points > 0 else ""
+    hit_display = f" (📉 -{transfers_cost})" if transfers_cost > 0 else ""
     tc_indicator = " 🔥×3" if active_chip == "3xc" else ""
+    bb_indicator = " 💺" if active_chip == "bboost" else ""
 
     response = (
         f"🎮 **{name}**\n"
-        f"🆔 `{manager_id}`\n"
-        f"📊 **الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{event_points}*{bb_indicator}\n"
+        f"🆔 `{manager_id}` | 📊 **جولة {gameweek}**\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"⭐ نقاط الجولة: **{event_points}**{hit_display}\n"
+        f"✨ بونص متضمن: *{total_bonus_points}* نقطة\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
-        f"📈 الترتيب العالمي: *{rank_str}*\n"
-        f"📊 ترتيب الجولة: *{event_rank_str}*\n"
+        f"📈 الترتيب: *{rank:,}*\n"
+        f"👑 كابتن: {captain_name} (*{captain_points}*){tc_indicator}\n"
     )
     
-    response += active_chip_display
-
-    if captain_name:
-        response += f"👑 الكابتن ({captain_name}): *{captain_points}* نقطة{tc_indicator}\n"
-    else:
-        response += f"👑 نقاط الكابتن: *{captain_points}*\n"
+    if active_chip:
+        response += f"🎭 بطاقة نشطة: **{active_chip.upper()}**{bb_indicator}\n"
 
     return response
 
