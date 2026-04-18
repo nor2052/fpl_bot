@@ -502,64 +502,65 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                 "name": f"{player['first_name']} {player['second_name']}"
             }
 
-    position_names = {1: "🧤 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
+    position_names = {1: "🥅 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
     # ==========================================
 
     # ========== دالة فرعية لمعالجة نقاط اللاعب وإحصائياته ==========
-    def get_player_status_and_points(p_id, multiplier, is_cap):
+def get_player_status_and_points(p_id, multiplier, is_cap):
         p_data = full_live_data.get(p_id, {})
         stats = p_data.get('stats', {})
+        p_info = players_full_data.get(p_id, {})
+        pos_id = p_info.get("element_type") # 1:GK, 2:DEF, 3:MID, 4:FWD
+
+        # --- [حساب نقاط المساهمات الدفاعية - القانون الجديد] ---
+        # CBI = Clearances + Blocks + Interceptions
+        cbi_total = stats.get('clearances', 0) + stats.get('blocks', 0) + stats.get('interceptions', 0)
+        defensive_bonus_points = 0
         
+        if pos_id == 2: # مدافع
+            if cbi_total >= 10:
+                defensive_bonus_points = 2
+        elif pos_id in [3, 4]: # وسط أو هجوم
+            if cbi_total >= 12:
+                defensive_bonus_points = 2
+        
+        # --- [تعديل النقاط] ---
+        # نعتمد على total_points من الـ API ونضيف لها نقاط الـ Bonus الدفاعي 
+        # (فقط إذا لم تكن الفانتاسي قد أضافتها بالفعل - عادة تضاف مع البونص العادي)
         total_api_points = stats.get('total_points', 0)
         actual_bonus = stats.get('bonus', 0)
-        base_points = total_api_points - actual_bonus
         
-        if actual_bonus > 0:
-            points_str = f"{total_api_points * multiplier}"
-            final_p = total_api_points * multiplier
-        else:
-            points_str = f"({base_points * multiplier} + {actual_bonus * multiplier})" if actual_bonus > 0 else f"{base_points * multiplier}"
-            final_p = total_api_points * multiplier
+        # النقاط النهائية تشمل الـ API + التوقع للمساهمات الدفاعية إذا لم تحسب بعد
+        # ملاحظة: في الغالب الـ API يضيفها في الـ total_points لاحقاً
+        final_p = (total_api_points) * multiplier 
+        points_str = f"{final_p}"
 
+        # --- [التنسيق البصري الجميل] ---
         events = []
-        goals = stats.get('goals_scored', 0)
-        if goals > 0:
-            events.append("⚽" * goals)
+        # الهجوم
+        if stats.get('goals_scored', 0) > 0: events.append("⚽" * stats.get('goals_scored'))
+        if stats.get('assists', 0) > 0: events.append("🅰️" * stats.get('assists'))
         
-        assists = stats.get('assists', 0)
-        if assists > 0:
-            events.append("🅰️" * assists)
+        # الدفاع والكلين شيت
+        if stats.get('clean_sheets', 0) > 0: events.append("🕸")
         
-        clean_sheet = stats.get('clean_sheets', 0)
-        if clean_sheet > 0:
-            events.append("🛡️")
-        
+        # إظهار أيقونة المساهمات الدفاعية إذا حقق الشرط
+        if defensive_bonus_points > 0:
+            events.append(f"🛡️✨(+2)") # علامة التميز الدفاعي
+        elif cbi_total > 0:
+            events.append(f"📊({cbi_total})") # إظهار العداد إذا لم يصل للهدف بعد
+
+        # الحراس
         saves = stats.get('saves', 0)
-        if saves >= 3:
-            events.append(f"🧤({saves})")
+        if saves >= 3: events.append(f"🧤({saves})")
         
-        yellow = stats.get('yellow_cards', 0)
-        if yellow > 0:
-            events.append("🟨")
-        red = stats.get('red_cards', 0)
-        if red > 0:
-            events.append("🟥")
-        
-        own_goals = stats.get('own_goals', 0)
-        if own_goals > 0:
-            events.append("🚫(OG)")
-        
-        penalties_missed = stats.get('penalties_missed', 0)
-        if penalties_missed > 0:
-            events.append("❌(PK)")
-        
-        penalties_saved = stats.get('penalties_saved', 0)
-        if penalties_saved > 0:
-            events.append("🧤(PK)")
+        # البطاقات والأحداث السلبية
+        if stats.get('yellow_cards', 0) > 0: events.append("🟨")
+        if stats.get('red_cards', 0) > 0: events.append("🟥")
 
         status_icons = " ".join(events)
         return points_str, final_p, status_icons
-
+    
     # ========== حساب نقاط الجولة واللاعبين ==========
     event_points_before_hits = 0  # النقاط قبل خصم السالب
     total_transfers = safe_int(info.get("total_transfers"))
