@@ -129,19 +129,24 @@ def sanitize_markdown(text):
     return text
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
+    """عرض بسيط يتضمن المعلومات الأساسية ونقاط الجولة المحسوبة يدوياً (مع دعم البنش بوست والبطاقة المفعلة)"""
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
 
     live_points_map = get_live_points(gameweek)
-
+    
+    # ========== حساب النقاط مع دعم البنش بوست ==========
+    active_chip = picks_data.get("active_chip") if picks_data else None
     event_points = 0
-    event_rank = 0
     captain_points = 0
     captain_name = ""
-
+    
     if picks_data and "picks" in picks_data:
-        for pick in picks_data["picks"][:11]:
+        # إذا كان البنش بوست مفعلاً: نحتسب الـ 15 لاعباً، وإلا نحتسب الـ 11 لاعباً الأساسيين فقط
+        players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
+        
+        for pick in players_to_count:
             player_id = pick.get("element")
             actual_points = live_points_map.get(player_id, 0)
             multiplier = pick.get("multiplier", 1)
@@ -150,22 +155,44 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
             if pick.get("is_captain"):
                 captain_points = actual_points * multiplier
                 captain_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
-
+        
         if "entry_history" in picks_data:
             event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
+    else:
+        event_rank = 0
+    # ==================================================
+
+    # ========== تحديد البطاقة المفعلة الحالية ==========
+    active_chip_display = ""
+    if active_chip:
+        chip_emojis = {
+            "3xc": "👑 الكابتن الثلاثي (TC)",
+            "bboost": "💺 تفعيل الدكة (BB)",
+            "freehit": "🃏 الانتقالات المجانية (FH)",
+            "wildcard": "🛠 الوايلد كارد (WC)"
+        }
+        chip_name = chip_emojis.get(active_chip, active_chip)
+        active_chip_display = f"🎭 البطاقة المفعلة: *{chip_name}*\n"
+    # ==================================================
 
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
+    
+    # إضافة إشارة للبنش بوست إذا كان مفعلاً
+    bb_indicator = " (مع البدلاء 💺)" if active_chip == "bboost" else ""
 
     response = (
         f"🎮 **{name}**\n"
         f"🆔 `{manager_id}`\n"
         f"📊 **الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{event_points}*\n"
+        f"⭐ نقاط الجولة: *{event_points}*{bb_indicator}\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"📊 ترتيب الجولة: *{event_rank_str}*\n"
     )
+    
+    # إضافة البطاقة المفعلة إن وجدت
+    response += active_chip_display
 
     if captain_name:
         response += f"👑 الكابتن ({captain_name}): *{captain_points}* نقطة\n"
@@ -174,8 +201,10 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
 
     return response
 
+# انتهت دالة العرض البسيط
+
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
-    """عرض مفصل يتضمن معلومات أساسية + اللاعبين الأساسيين + اللاعبين البدلاء + القيمة المالية"""
+    """عرض مفصل يتضمن: المعلومات الأساسية، حالة البطاقات، القيمة المالية، اللاعبين الأساسيين والبدلاء"""
     name = sanitize_markdown(safe_str(info.get("name")))
     joined = safe_str(info.get("joined_time", ""))[:10]
     if joined == "" or joined == "None":
@@ -184,29 +213,34 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
     
-    # ========== القسم المصحح: استخراج القيمة المالية ==========
+    # ========== القيمة المالية ==========
     team_value = 0.0
     bank_value = 0.0
     total_value_display = 0.0
     
     if picks_data and "entry_history" in picks_data:
         history_info = picks_data["entry_history"]
-        raw_total_value = safe_int(history_info.get("value", 0))  # القيمة الكلية (تشكيلة + بنك)
-        raw_bank = safe_int(history_info.get("bank", 0))          # البنك فقط
+        raw_total_value = safe_int(history_info.get("value", 0))
+        raw_bank = safe_int(history_info.get("bank", 0))
         
         bank_value = raw_bank / 10
         team_value = (raw_total_value - raw_bank) / 10
         total_value_display = raw_total_value / 10
-    # =====================================================
+    # ==================================
 
     live_points_map = get_live_points(gameweek)
 
+    # ========== حساب النقاط مع دعم البنش بوست ==========
+    active_chip = picks_data.get("active_chip") if picks_data else None
     calculated_event_points = 0
     total_transfers = safe_int(info.get("total_transfers"))
     event_rank = 0
-
+    
     if picks_data and "picks" in picks_data:
-        for pick in picks_data["picks"][:11]:
+        # إذا كان البنش بوست مفعلاً: نحتسب الـ 15 لاعباً، وإلا نحتسب الـ 11 لاعباً الأساسيين فقط
+        players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
+        
+        for pick in players_to_count:
             player_id = pick.get("element")
             actual_points = live_points_map.get(player_id, 0)
             multiplier = pick.get("multiplier", 1)
@@ -215,21 +249,56 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         if "entry_history" in picks_data:
             event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
             total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
+    # ==================================================
+
+    # ========== حالة البطاقات (CHIPS) ==========
+    chips_status = ""
+    if history and "chips" in history:
+        used_chips = history["chips"]
+        
+        chips_info = {
+            "3xc": "👑 الكابتن الثلاثي (TC)",
+            "bboost": "💺 تفعيل الدكة (BB)",
+            "freehit": "🃏 الانتقالات المجانية (FH)",
+            "wildcard": "🛠 الوايلد كارد (WC)"
+        }
+        
+        chips_status = "🎭 **حالة البطاقات (Chips):**\n"
+        
+        for chip_key, chip_name in chips_info.items():
+            usage = next((c for c in used_chips if c['name'] == chip_key), None)
+            
+            if active_chip == chip_key:
+                chips_status += f"• **{chip_name}: تلعب الآن 🟢**\n"
+            elif usage:
+                chips_status += f"• ~{chip_name}~: الجولة {usage['event']} 🔴\n"
+            else:
+                chips_status += f"• _{chip_name}_: لم تلعب 🟡\n"
+        chips_status += "\n"
+    else:
+        chips_status = "🎭 **حالة البطاقات (Chips):** لا توجد بيانات متاحة\n\n"
+    # ==========================================
 
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
+    
+    # إضافة إشارة للبنش بوست إذا كان مفعلاً
+    bb_indicator = " (تشمل البدلاء 💺)" if active_chip == "bboost" else ""
 
     response = (
         f"🎮 **{name}**\n"
         f"🆔 `{manager_id}`\n"
         f"📅 انضم: {joined}\n"
         f"📊 **الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: *{calculated_event_points}*\n"
+        f"⭐ نقاط الجولة: *{calculated_event_points}*{bb_indicator}\n"
         f"🏆 النقاط الكلية: *{total_points}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"🔄 انتقالات الجولة: *{total_transfers}*\n"
         f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
+    
+    # إضافة قسم البطاقات
+    response += chips_status
     
     # ========== عرض القيمة المالية ==========
     if team_value > 0 or bank_value > 0:
@@ -241,26 +310,26 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         )
     # ======================================
     
-    # الحصول على بيانات اللاعبين الكاملة لمعرفة مراكزهم
+    # ========== الحصول على بيانات اللاعبين الكاملة ==========
     players_full_data = {}
     bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_full_data")
     if bootstrap_data and "elements" in bootstrap_data:
         for player in bootstrap_data["elements"]:
             players_full_data[player["id"]] = {
-                "element_type": player.get("element_type"),  # 1=GK, 2=DEF, 3=MID, 4=FWD
+                "element_type": player.get("element_type"),
                 "name": f"{player['first_name']} {player['second_name']}"
             }
 
-    # قاموس ترجمة المراكز
     position_names = {1: "🧤 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
+    # =====================================================
     
-    # عرض لاعبي الفريق الأساسيين
+    # ========== عرض اللاعبين الأساسيين ==========
     if picks_data and "picks" in picks_data:
         response += "🧑‍🤝‍🧑 **اللاعبون الأساسيون:**\n\n"
         
-        # تجميع اللاعبين حسب المركز
         players_by_position = {1: [], 2: [], 3: [], 4: []}
         
+        # نعرض أول 11 لاعباً فقط (الأساسيين) بغض النظر عن البنش بوست
         for pick in picks_data["picks"][:11]:
             player_id = pick.get("element")
             player_info = players_full_data.get(player_id, {})
@@ -277,9 +346,8 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             if position in players_by_position:
                 players_by_position[position].append(player_text)
             else:
-                players_by_position[0].append(player_text)  # في حال عدم معرفة المركز
+                players_by_position[0].append(player_text)
         
-        # عرض اللاعبين حسب المركز مع ترقيم متسلسل
         counter = 1
         for pos in [1, 2, 3, 4]:
             if players_by_position[pos]:
@@ -288,11 +356,10 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                     response += f"{counter}. {player_text}\n"
                     counter += 1
         
-        # عرض اللاعبين البدلاء (الاحتياط)
+        # ========== عرض اللاعبين البدلاء ==========
         if len(picks_data["picks"]) > 11:
             response += "\n🔄 **اللاعبون البدلاء:**\n\n"
             
-            # تجميع البدلاء حسب المركز
             subs_by_position = {1: [], 2: [], 3: [], 4: []}
             
             for pick in picks_data["picks"][11:]:
@@ -309,7 +376,6 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                 else:
                     subs_by_position[0].append(player_text)
             
-            # عرض البدلاء حسب المركز مع ترقيم متسلسل
             counter = 1
             for pos in [1, 2, 3, 4]:
                 if subs_by_position[pos]:
@@ -322,7 +388,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
 
     return response
-
+    
 # انتهت دالة العرض المفصل والتالية هي دالة عرض الدوريات
 
 def format_leagues_display(manager_id, info, gameweek, history):
