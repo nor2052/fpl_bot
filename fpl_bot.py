@@ -86,31 +86,34 @@ def get_fixtures(gameweek=None):
     return data if data else []
 
 def get_teams_dict():
-    """جلب قاموس بأسماء الفرق وأيقوناتها المخصصة"""
+    """جلب قاموس بأسماء الفرق وأيقوناتها من API مباشرة مع إيموجيز ديناميكية"""
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_teams_dict")
     
-    # قاموس الأندية بإيموجي واحد مبدع لكل فريق (حسب الـ ID)
-    TEAMS_INFO = {
-        1: "🚀 آرسنال",
-        2: "💎 مان سيتي",
-        3: "🔱 مان يونايتد",
-        4: "🏰 أستون فيلا",
-        5: "🐦‍🔥 ليفربول",
-        6: "🦁 تشيلسي",
-        7: "🐝 برينتفورد",
-        8: "🍒 بورنموث",
-        9: "🐦 برايتون",
-        10: "🍬 إيفرتون",
-        11: "🐈 سندرلاند",
-        12: "🏁 فولهام",
-        13: "🦅 كريستال بالاس",
-        14: "🐦‍⬛ نيوكاسل",
-        15: "🦚 ليدز يونايتد",
-        16: "🎋 نوتنجهام فورست",
-        17: "⚒️ وست هام",
-        18: "🐔 توتنهام",
-        19: "🧱 بيرنلي",
-        20: "🐱 وولفرهامبتون"
+    # قاموس الإيموجيز المخصصة بناءً على الاسم (وليس الـ ID)
+    team_emojis_by_name = {
+        "Arsenal": "🚀",
+        "Aston Villa": "🏰",
+        "Bournemouth": "🍒",
+        "Brentford": "🐝",
+        "Brighton": "🐦",
+        "Chelsea": "🦁",
+        "Crystal Palace": "🦅",
+        "Everton": "🍬",
+        "Fulham": "🏁",
+        "Ipswich Town": "🚜",
+        "Leicester City": "🦊",
+        "Liverpool": "🐦‍🔥",
+        "Manchester City": "💎",
+        "Manchester United": "🔱",
+        "Newcastle United": "🐦‍⬛",
+        "Nottingham Forest": "🎋",
+        "Southampton": "⚪",
+        "Tottenham Hotspur": "🐔",
+        "West Ham United": "⚒️",
+        "Wolverhampton Wanderers": "🐱",
+        "Leeds United": "🦚",
+        "Burnley": "🧱",
+        "Sunderland": "🐈"
     }
     
     teams = {}
@@ -118,19 +121,22 @@ def get_teams_dict():
         for team in data["teams"]:
             team_id = team["id"]
             team_name = team["name"]
+            team_short_name = team["short_name"]
             
-            if team_id in TEAMS_INFO:
-                teams[team_id] = {
-                    "name": team_name,
-                    "short_name": team["short_name"],
-                    "emoji": TEAMS_INFO[team_id]
-                }
-            else:
-                teams[team_id] = {
-                    "name": team_name,
-                    "short_name": team["short_name"],
-                    "emoji": f"⚽ {team_name}"
-                }
+            # البحث عن الإيموجي بناءً على الاسم الكامل
+            emoji = team_emojis_by_name.get(team_name, "⚽")
+            
+            teams[team_id] = {
+                "id": team_id,
+                "name": team_name,
+                "short_name": team_short_name,
+                "emoji": f"{emoji} {team_short_name}"  # إضافة الإيموجي مع الاختصار
+            }
+    
+    # طباعة للتصحيح (يمكن إزالتها لاحقاً)
+    logger.info(f"🏆 تم تحميل {len(teams)} فريق")
+    for tid, tinfo in teams.items():
+        logger.info(f"  {tid}: {tinfo['emoji']}")
     
     return teams
 
@@ -285,12 +291,15 @@ def format_fixtures_by_day(fixtures, teams_dict, gameweek_num):
             team_h_score = fixture.get("team_h_score")
             team_a_score = fixture.get("team_a_score")
             
-            team_h_info = teams_dict.get(team_h_id, {"name": "Unknown", "emoji": "⚽"})
-            team_a_info = teams_dict.get(team_a_id, {"name": "Unknown", "emoji": "⚽"})
+            # جلب معلومات الفريقين
+            team_h_info = teams_dict.get(team_h_id, {"emoji": "⚽", "short_name": f"فريق {team_h_id}"})
+            team_a_info = teams_dict.get(team_a_id, {"emoji": "⚽", "short_name": f"فريق {team_a_id}"})
             
+            # عرض الفريق المضيف أولاً (team_h) ثم الفريق الضيف (team_a)
             team_h_display = team_h_info["emoji"]
             team_a_display = team_a_info["emoji"]
             
+            # عرض النتيجة
             if team_h_score is not None and team_a_score is not None:
                 score_display = f"**{team_h_score}** - **{team_a_score}**"
             else:
@@ -298,16 +307,11 @@ def format_fixtures_by_day(fixtures, teams_dict, gameweek_num):
             
             status = format_match_status(fixture)
             
-            # إضافة أهداف إضافية إذا كانت المباراة منتهية
-            if fixture.get("finished", False):
-                response += f"• {match_time} | {team_h_display} {score_display} {team_a_display} | {status}\n"
-            else:
-                response += f"• {match_time} | {team_h_display} {score_display} {team_a_display} | {status}\n"
+            response += f"• {match_time} | {team_h_display} {score_display} {team_a_display} | {status}\n"
         
         response += "\n"
     
     return response
-
 # ----------------------------- دوال عرض المعلومات -----------------------------
 
 def format_simple_display(manager_id, info, gameweek, picks_data):
