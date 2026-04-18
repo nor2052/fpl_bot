@@ -364,22 +364,19 @@ def get_player_bonus_points(player_id, gameweek):
 
 
 def get_full_live_data(gameweek):
-    """جلب بيانات جميع اللاعبين (نقاط + إحصائيات) لجولة محددة مع معالجة الأخطاء"""
+    """جلب بيانات جميع اللاعبين الكاملة (نقاط + إحصائيات) لجولة محددة"""
     url = f"{BASE_URL}/event/{gameweek}/live/"
-    data = safe_api_request(url, f"live_data_gw_{gameweek}")
+    data = safe_api_request(url, "get_full_live_data")
     
     players_data = {}
     if data and "elements" in data:
         for element in data["elements"]:
-            p_id = element.get("id")
-            if p_id:
-                # نحفظ كائن stats بالكامل لأنه يحتوي على كل ما طلبته (goals, assists, bps, bonus...)
-                players_data[p_id] = {
-                    "stats": element.get("stats", {}),
-                    "explain": element.get("explain", []) # مفيد جداً إذا أردت لاحقاً معرفة تفاصيل أكثر
-                }
+            player_id = element["id"]
+            players_data[player_id] = {
+                "id": player_id,
+                "stats": element.get("stats", {})
+            }
     
-    # في حال فشل الـ API نرسل قاموساً فارغاً لتجنب توقف الكود (Crash)
     return players_data
 
 
@@ -462,7 +459,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
 #  نهاية دالة العرض البسيط ___________________________
 
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
-    """عرض مفصل يتضمن: المعلومات الأساسية، حالة البطاقات، القيمة المالية، اللاعبين (مع دعم التربل كابتن)"""
+    """عرض مفصل شامل مع إحصائيات اللاعبين (أهداف، تمريرات، بطاقات، بونص)"""
     name = sanitize_markdown(safe_str(info.get("name")))
     joined = safe_str(info.get("joined_time", ""))[:10]
     if joined == "" or joined == "None":
@@ -471,6 +468,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
     
+    # ========== القيمة المالية ==========
     team_value = 0.0
     bank_value = 0.0
     total_value_display = 0.0
@@ -483,36 +481,146 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         bank_value = raw_bank / 10
         team_value = (raw_total_value - raw_bank) / 10
         total_value_display = raw_total_value / 10
+    # ==================================
 
-    live_points_map = get_live_points(gameweek)
-
+    # ========== جلب البيانات الشاملة ==========
+    full_live_data = get_full_live_data(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
+    
+    # جلب بيانات مراكز اللاعبين
+    players_full_data = {}
+    bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_full_data")
+    if bootstrap_data and "elements" in bootstrap_data:
+        for player in bootstrap_data["elements"]:
+            players_full_data[player["id"]] = {
+                "element_type": player.get("element_type"),
+                "name": f"{player['first_name']} {player['second_name']}"
+            }
+
+    position_names = {1: "🧤 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
+    # ==========================================
+
+    # ========== دالة فرعية لمعالجة نقاط اللاعب وإحصائياته ==========
+    def get_player_status_and_points(p_id, multiplier, is_cap):
+        p_data = full_live_data.get(p_id, {})
+        stats = p_data.get('stats', {})
+        
+        # 1. معالجة البونص المزدوج
+        total_api_points = stats.get('total_points', 0)
+        actual_bonus = stats.get('bonus', 0)
+        
+        base_points = total_api_points - actual_bonus
+        
+        if actual_bonus > 0:
+            # تم الاعتماد: عرض النقاط النهائية فقط
+            points_str = f"{total_api_points * multiplier}"
+            final_p = total_api_points * multiplier
+        else:
+            # لم يتم الاعتماد بعد: نعرض الحسبة
+            points_str = f"({base_points * multiplier} + {actual_bonus * multiplier})" if actual_bonus > 0 else f"{base_points * multiplier}"
+            final_p = total_api_points * multiplier
+
+        # 2. الأيقونات والإحصائيات
+        events = []
+        # الهجوم
+        goals = stats.get('goals_scored', 0)
+        if goals > 0:
+            events.append("⚽" * goals)
+        
+        assists = stats.get('assists', 0)
+        if assists > 0:
+            events.append("🅰️" * assists)
+        
+        # الدفاع (الكلين شيت)
+        clean_sheet = stats.get('clean_sheets', 0)
+        if clean_sheet > 0:
+            events.append("🛡️")
+        
+        # الحراس (تصديات)
+        saves = stats.get('saves', 0)
+        if saves >= 3:
+            events.append(f"🧤({saves})")
+        
+        # البطاقات
+        yellow = stats.get('yellow_cards', 0)
+        if yellow > 0:
+            events.append("🟨")
+        red = stats.get('red_cards', 0)
+        if red > 0:
+            events.append("🟥")
+        
+        # أهداف في مرماه
+        own_goals = stats.get('own_goals', 0)
+        if own_goals > 0:
+            events.append("🚫(OG)")
+        
+        # ركلات جزاء ضائعة
+        penalties_missed = stats.get('penalties_missed', 0)
+        if penalties_missed > 0:
+            events.append("❌(PK)")
+        
+        # ركلات جزاء مسجلة (للحراس)
+        penalties_saved = stats.get('penalties_saved', 0)
+        if penalties_saved > 0:
+            events.append("🧤(PK)")
+
+        status_icons = " ".join(events)
+        return points_str, final_p, status_icons
+
+    # ========== حساب نقاط الجولة واللاعبين ==========
     calculated_event_points = 0
     total_transfers = safe_int(info.get("total_transfers"))
     event_rank = 0
-    captain_multiplier = 1
+    transfers_cost = 0
+    players_output = ""
     
     if picks_data and "picks" in picks_data:
-        players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
+        # ========== عرض اللاعبين الأساسيين ==========
+        for pos_id in [1, 2, 3, 4]:
+            pos_players = [p for p in picks_data["picks"][:11] if players_full_data.get(p['element'], {}).get('element_type') == pos_id]
+            if pos_players:
+                players_output += f"{position_names[pos_id]}:\n"
+                for pick in pos_players:
+                    p_id = pick['element']
+                    mult = 3 if (pick.get('is_captain') and active_chip == '3xc') else (2 if pick.get('is_captain') else 1)
+                    
+                    p_name = sanitize_markdown(players_dict.get(p_id, "Unknown"))
+                    p_pts_str, p_pts_val, p_icons = get_player_status_and_points(p_id, mult, pick.get('is_captain'))
+                    
+                    cap_tag = "👑" if pick.get('is_captain') else ""
+                    tc_tag = "×3🔥" if (pick.get('is_captain') and active_chip == '3xc') else ""
+                    vc_tag = "(VC)" if pick.get('is_vice_captain') and not pick.get('is_captain') else ""
+                    
+                    captain_display = ""
+                    if cap_tag:
+                        captain_display = f"{cap_tag}{tc_tag}"
+                    elif vc_tag:
+                        captain_display = vc_tag
+                    
+                    players_output += f"• {p_name} {captain_display} {p_icons}: **{p_pts_str}**\n"
+                    calculated_event_points += p_pts_val
+                players_output += "\n"
         
-        for pick in players_to_count:
-            player_id = pick.get("element")
-            actual_points = live_points_map.get(player_id, 0)
-            multiplier = pick.get("multiplier", 1)
-            
-            if pick.get("is_captain"):
-                if active_chip == "3xc":
-                    captain_multiplier = 3
-                else:
-                    captain_multiplier = 2
-                calculated_event_points += actual_points * captain_multiplier
-            else:
-                calculated_event_points += actual_points * multiplier
-
+        # ========== عرض اللاعبين البدلاء ==========
+        if len(picks_data["picks"]) > 11:
+            players_output += "🔄 **اللاعبون البدلاء:**\n\n"
+            for pick in picks_data["picks"][11:]:
+                p_id = pick['element']
+                p_name = sanitize_markdown(players_dict.get(p_id, "Unknown"))
+                p_pts_str, p_pts_val, p_icons = get_player_status_and_points(p_id, 1, False)
+                players_output += f"• {p_name} {p_icons}: **{p_pts_str}**\n"
+                calculated_event_points += p_pts_val
+            players_output += "\n"
+        
+        # ========== حساب السالب وترتيب الجولة ==========
         if "entry_history" in picks_data:
             event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
+            transfers_cost = safe_int(picks_data["entry_history"].get("event_transfers_cost", 0))
             total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
+            calculated_event_points += transfers_cost  # إضافة الخصم السالب
+    # ==================================================
 
+    # ========== حالة البطاقات (Chips) ==========
     chips_status = ""
     if history and "chips" in history:
         used_chips = history["chips"]
@@ -551,26 +659,36 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         chips_status += "\n"
     else:
         chips_status = "🎭 **حالة البطاقات (Chips):** لا توجد بيانات متاحة حالياً\n\n"
+    # ==========================================
 
+    # ========== تنسيق الأرقام ==========
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
     
     bb_indicator = " (تشمل البدلاء 💺)" if active_chip == "bboost" else ""
+    
+    transfers_text = f"🔄 انتقالات الجولة: *{total_transfers}*"
+    if transfers_cost < 0:
+        transfers_text += f" (خصم {transfers_cost})"
+    # ==================================
 
+    # ========== بناء الرد النهائي ==========
     response = (
         f"🎮 **{name}**\n"
         f"🆔 `{manager_id}`\n"
         f"📅 انضم: {joined}\n"
         f"📊 **الجولة {gameweek}**\n"
         f"⭐ نقاط الجولة: *{calculated_event_points}*{bb_indicator}\n"
-        f"🏆 النقاط الكلية: *{total_points}*\n"
+        f"🏆 النقاط الكلية: *{total_points:,}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
-        f"🔄 انتقالات الجولة: *{total_transfers}*\n"
+        f"{transfers_text}\n"
         f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
     
+    # إضافة قسم البطاقات
     response += chips_status
     
+    # ========== عرض القيمة المالية ==========
     if team_value > 0 or bank_value > 0:
         response += (
             f"💰 **المالية:**\n"
@@ -578,89 +696,12 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             f"• البنك: *£{bank_value:.1f}m*\n"
             f"• الإجمالي: *£{total_value_display:.1f}m*\n\n"
         )
+    # ======================================
     
-    players_full_data = {}
-    bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_full_data")
-    if bootstrap_data and "elements" in bootstrap_data:
-        for player in bootstrap_data["elements"]:
-            players_full_data[player["id"]] = {
-                "element_type": player.get("element_type"),
-                "name": f"{player['first_name']} {player['second_name']}"
-            }
-
-    position_names = {1: "🧤 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
+    # ========== عرض اللاعبين ==========
+    response += "🧑‍🤝‍🧑 **اللاعبون:**\n\n"
+    response += players_output
     
-    if picks_data and "picks" in picks_data:
-        response += "🧑‍🤝‍🧑 **اللاعبون الأساسيون:**\n\n"
-        
-        players_by_position = {1: [], 2: [], 3: [], 4: []}
-        
-        for pick in picks_data["picks"][:11]:
-            player_id = pick.get("element")
-            player_info = players_full_data.get(player_id, {})
-            position = player_info.get("element_type", 0)
-            player_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
-            actual_points = live_points_map.get(player_id, 0)
-            
-            multiplier = pick.get("multiplier", 1)
-            if pick.get("is_captain"):
-                if active_chip == "3xc":
-                    display_points = actual_points * 3
-                    is_captain = " 👑×3🔥"
-                else:
-                    display_points = actual_points * 2
-                    is_captain = " 👑"
-            else:
-                display_points = actual_points * multiplier
-                is_captain = ""
-            
-            is_vice = " (VC)" if pick.get("is_vice_captain") else ""
-            
-            player_text = f"{player_name}{is_captain}{is_vice}: {display_points} نقطة"
-            
-            if position in players_by_position:
-                players_by_position[position].append(player_text)
-            else:
-                players_by_position[0].append(player_text)
-        
-        counter = 1
-        for pos in [1, 2, 3, 4]:
-            if players_by_position[pos]:
-                response += f"{position_names[pos]}:\n"
-                for player_text in players_by_position[pos]:
-                    response += f"{counter}. {player_text}\n"
-                    counter += 1
-        
-        if len(picks_data["picks"]) > 11:
-            response += "\n🔄 **اللاعبون البدلاء:**\n\n"
-            
-            subs_by_position = {1: [], 2: [], 3: [], 4: []}
-            
-            for pick in picks_data["picks"][11:]:
-                player_id = pick.get("element")
-                player_info = players_full_data.get(player_id, {})
-                position = player_info.get("element_type", 0)
-                player_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
-                actual_points = live_points_map.get(player_id, 0)
-                
-                player_text = f"{player_name}: {actual_points} نقطة"
-                
-                if position in subs_by_position:
-                    subs_by_position[position].append(player_text)
-                else:
-                    subs_by_position[0].append(player_text)
-            
-            counter = 1
-            for pos in [1, 2, 3, 4]:
-                if subs_by_position[pos]:
-                    response += f"{position_names[pos]}:\n"
-                    for player_text in subs_by_position[pos]:
-                        response += f"{counter}. {player_text}\n"
-                        counter += 1
-        response += "\n"
-    else:
-        response += "⚠️ لا توجد بيانات للاعبين في هذه الجولة.\n\n"
-
     return response
 
 def format_leagues_display(manager_id, info, gameweek, history):
