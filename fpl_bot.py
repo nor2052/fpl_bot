@@ -75,39 +75,31 @@ def format_number_abbreviation(num):
     else:
         return f"{sign}{abs_num}"
 
-def get_rank_change_display(manager_id, current_rank, current_gameweek):
+def get_rank_change_display(manager_id, gameweek, history):
     """
-    دالة ذكية تحسب وتنسق تغير الترتيب العالمي
-    تجلب الترتيب السابق تلقائياً من history إذا لزم الأمر
+    حساب تغير الترتيب من بيانات history مباشرة
     """
-    # إذا لم يكن لدينا ترتيب حالي، لا نعرض شيئاً
-    if current_rank <= 0:
-        return ""
-    
-    # محاولة الحصول على الترتيب السابق من history
+    current_rank = 0
     previous_rank = 0
-    history = get_manager_history(manager_id)
     
     if history and "current" in history:
-        for gw_data in history["current"]:
-            if gw_data.get("event") == current_gameweek - 1:
-                previous_rank = safe_int(gw_data.get("rank"))
-                break
+        for gw_entry in history["current"]:
+            if gw_entry.get("event") == gameweek:
+                current_rank = safe_int(gw_entry.get("overall_rank"))
+            elif gw_entry.get("event") == gameweek - 1:
+                previous_rank = safe_int(gw_entry.get("overall_rank"))
     
-    # إذا لم نجد ترتيب سابق، لا نعرض شيئاً
-    if previous_rank <= 0:
+    if current_rank <= 0 or previous_rank <= 0:
         return ""
     
-    # إذا لم يتغير الترتيب، لا نعرض شيئاً
     if current_rank == previous_rank:
         return ""
     
-    # حساب الفرق
-    diff = previous_rank - current_rank  # موجب = تحسن، سالب = تراجع
+    diff = previous_rank - current_rank
     
     if diff > 0:
         formatted_diff = format_number_abbreviation(diff)
-        return f" ❇️ **(+{formatted_diff[1:]})**" if formatted_diff.startswith('+') else f" 🚀 **({formatted_diff})**"
+        return f" 🚀 **(+{formatted_diff[1:]})**" if formatted_diff.startswith('+') else f" 🚀 **({formatted_diff})**"
     else:
         formatted_diff = format_number_abbreviation(diff)
         return f" 🔻 **({formatted_diff})**"
@@ -327,10 +319,21 @@ def get_gameweek_stats(gameweek):
 # دوال عرض المعلومات
 # ============================================================
 
-def format_simple_display(manager_id, info, gameweek, picks_data):
+def format_simple_display(manager_id, info, gameweek, picks_data, history):
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
-    rank = safe_int(info.get("summary_overall_rank"))
+
+        # ========== جلب الترتيب الصحيح للجولة ==========
+    target_gw_rank = 0
+    if history and "current" in history:
+        for gw_entry in history["current"]:
+            if gw_entry.get("event") == gameweek:
+                target_gw_rank = safe_int(gw_entry.get("overall_rank"))
+                break
+    
+    # استخدام الترتيب من history أو الاحتياطي من info
+    rank = target_gw_rank if target_gw_rank > 0 else safe_int(info.get("summary_overall_rank"))
+    # ================================================
     
     live_points_map = get_live_points(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
@@ -363,8 +366,8 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     transfer_line = f"🔄 الانتقالات: *{transfers_made}*" + (f" (-{transfers_cost})" if transfers_cost > 0 else "")
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
 
-    # سطر واحد فقط لحساب تغير الترتيب
-    rank_change_display = get_rank_change_display(manager_id, rank, gameweek)
+    # حساب تغير الترتيب
+    rank_change_display = get_rank_change_display(manager_id, gameweek, history)
     
     if transfers_cost > 0:
         points_display = f"**{event_points_after_hits}** ({event_points_before_hits})"
@@ -401,7 +404,18 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         joined = "غير معروف"
     
     total_points = safe_int(info.get("summary_overall_points"))
-    rank = safe_int(info.get("summary_overall_rank"))
+
+    # ========== جلب الترتيب الصحيح للجولة ==========
+    target_gw_rank = 0
+    if history and "current" in history:
+        for gw_entry in history["current"]:
+            if gw_entry.get("event") == gameweek:
+                target_gw_rank = safe_int(gw_entry.get("overall_rank"))
+                break
+    
+    rank = target_gw_rank if target_gw_rank > 0 else safe_int(info.get("summary_overall_rank"))
+    rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
+    # ================================================
     
     # القيمة المالية
     team_value = bank_value = total_value_display = 0.0
@@ -417,8 +431,8 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     full_live_data = get_full_live_data(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
 
-    # سطر واحد فقط لحساب تغير الترتيب
-    rank_change_display = get_rank_change_display(manager_id, rank, gameweek)
+    # حساب تغير الترتيب
+    rank_change_display = get_rank_change_display(manager_id, gameweek, history)
 
     # جلب إحصائيات الجولة (المتوسط)
     gw_stats = get_gameweek_stats(gameweek)
@@ -768,7 +782,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     picks_data = get_manager_picks(manager_id, start_gameweek)
-    text = format_simple_display(manager_id, info, start_gameweek, picks_data)
+    history = get_manager_history(manager_id)
+    text = format_simple_display(manager_id, info, start_gameweek, picks_data, history)
     reply_markup = get_buttons(manager_id, start_gameweek, "simple")
     
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
@@ -831,7 +846,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             history = get_manager_history(manager_id)
             
             text_map = {
-                "simple": format_simple_display(manager_id, info, gameweek, picks_data),
+                "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
                 "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
                 "leagues": format_leagues_display(manager_id, info, gameweek, history),
                 "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
