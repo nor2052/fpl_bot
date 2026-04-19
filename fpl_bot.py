@@ -240,6 +240,18 @@ def format_match_status(fixture):
         return f"🟢 الدقيقة {minutes}"
     return "⚪ لم تبدأ"
 
+def get_gameweek_stats(gameweek):
+    """جلب إحصائيات الجولة مثل المتوسط وأعلى نقاط"""
+    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_gw_stats")
+    if data and "events" in data:
+        for event in data["events"]:
+            if event.get("id") == gameweek:
+                return {
+                    "average_score": event.get("average_entry_score", 0),
+                    "highest_score": event.get("highest_score", 0)
+                }
+    return {"average_score": 0, "highest_score": 0}
+
 # ============================================================
 # دوال عرض المعلومات
 # ============================================================
@@ -252,6 +264,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     live_points_map = get_live_points(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
     event_points_before_hits = 0
+    event_rank = 0
     captain_points = 0
     captain_name = ""
     transfers_made = 0
@@ -273,9 +286,11 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
             history = picks_data["entry_history"]
             transfers_made = safe_int(history.get("event_transfers", 0))
             transfers_cost = safe_int(history.get("event_transfers_cost", 0))
+            event_rank = safe_int(history.get("rank", 0))
     
     event_points_after_hits = event_points_before_hits - transfers_cost
     transfer_line = f"🔄 الانتقالات: *{transfers_made}*" + (f" (-{transfers_cost})" if transfers_cost > 0 else "")
+    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
     
     if transfers_cost > 0:
         points_display = f"**{event_points_after_hits}** ({event_points_before_hits})"
@@ -292,8 +307,9 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
         f"⭐️ نقاط الجولة: {points_display}\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
         f"📈 الترتيب: *{rank:,}*\n"
+        f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
         f"{transfer_line}\n"
-        f"👑 الكابتن: {captain_name} (*{captain_points}*){tc_indicator}\n"
+        f"👑 القائد: {captain_name} (*{captain_points}*){tc_indicator}\n"
     )
     
     if active_chip:
@@ -324,6 +340,10 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     # جلب البيانات
     full_live_data = get_full_live_data(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
+
+    # جلب إحصائيات الجولة (المتوسط)
+    gw_stats = get_gameweek_stats(gameweek)
+    avg_points = gw_stats["average_score"]
     
     # بيانات مراكز اللاعبين
     players_full_data = {}
@@ -417,12 +437,12 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     if history and "chips" in history:
         used_chips = history["chips"]
         chips_info = {
-            "3xc": "👑 الكابتن الثلاثي (TC)",
+            "3xc": "👑 تثليث القائد (TC)",
             "bboost": "💺 تفعيل الدكة (BB)",
-            "freehit": "🃏 الانتقالات المجانية (FH)",
-            "wildcard": "🛠 الوايلد كارد (WC)"
+            "freehit": "🃏 ضربة الحظ (FH)",
+            "wildcard": "🛠 بطاقة الوحش (WC)"
         }
-        chips_status = "🎭 **حالة البطاقات (Chips):**\n"
+        chips_status = "🎭 ** البطاقات (Chips):**\n"
         for chip_key, chip_name in chips_info.items():
             all_usages = [c for c in used_chips if c['name'] == chip_key]
             if gameweek <= 19:
@@ -461,6 +481,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"📅 انضم: {joined}\n"
         f"📊 **الجولة {gameweek}**\n"
         f"⭐ نقاط الجولة: {points_display}{bb_indicator}\n"
+        f"🔝 متوسط الجولة: *{avg_points}* {diff_emoji} {diff_text}\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"{transfers_text}\n"
@@ -614,7 +635,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✓ نقاط الجولة للمدرب\n"
             "✓ النقاط الكلية والترتيب العالمي\n"
             "✓ نقاط كل لاعب في الفريق\n"
-            "✓ نقاط الكابتن\n"
+            "✓ نقاط القائد\n"
             "✓ قيمة الفريق والبنك 💰\n"
             "✓ ترتيب المدرب في كل دوري\n"
             "✓ تاريخ المواسم السابقة\n"
