@@ -363,35 +363,22 @@ def get_player_bonus_points(player_id, gameweek):
         return 0
 
 def get_defensive_contribution_status(player_id, element_type, full_live_data):
-    """التحقق من استحقاق نقطتي المساهمة الدفاعية باستخدام الحقول الصحيحة"""
+    """التحقق فقط من استحقاق المساهمة الدفاعية (بدون إضافة نقاط)"""
     p_entry = full_live_data.get(player_id, {})
-    if not p_entry or element_type == 1:  # الحراس مستبعدون
-        return 0, 0, 0
+    if not p_entry or element_type == 1:
+        return False, 0, 0  # (هل استحق, العدد الحالي, الحد المطلوب)
 
     metrics = p_entry.get("def_metrics", {})
     
-    # محاولة استخدام الحقل المدمج أولاً إذا كان موجوداً
-    cbi_field = metrics.get("cbi_field", 0)
-    
     if element_type == 2:  # مدافع
-        # للمدافعين: استخدام CBIT (clearances + blocks + interceptions + tackles)
-        if cbi_field > 0:
-            current = cbi_field + metrics.get("tackles", 0)
-        else:
-            current = metrics.get("cbit", 0)
+        current = metrics.get("cbit", 0)
         threshold = 10
     else:  # وسط أو مهاجم
-        # للوسط والمهاجمين: استخدام CBIRT (CBIT + recoveries)
-        if cbi_field > 0:
-            current = cbi_field + metrics.get("tackles", 0) + metrics.get("recoveries", 0)
-        else:
-            current = metrics.get("cbirt", 0)
+        current = metrics.get("cbirt", 0)
         threshold = 12
-    
-    # التحقق من تجاوز الحد الأدنى
-    points = 2 if current >= threshold else 0
-    
-    return points, current, threshold
+        
+    earned = current >= threshold
+    return earned, current, threshold
 
 
 #  نهاية دالة المساهمات الدفاعية
@@ -527,7 +514,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
 #  نهاية دالة العرض البسيط ___________________________
 
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
-    """عرض مفصل شامل مع إحصائيات اللاعبين والمساهمات الدفاعية"""
+    """عرض مفصل شامل مع إحصائيات اللاعبين وإيموجي المساهمات الدفاعية فقط"""
     name = sanitize_markdown(safe_str(info.get("name")))
     joined = safe_str(info.get("joined_time", ""))[:10]
     if joined == "" or joined == "None":
@@ -568,26 +555,20 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     position_names = {1: "🧤 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
     # ==========================================
 
-    # ========== دالة فرعية لمعالجة نقاط اللاعب وإحصائياته ==========
+    # ========== دالة فرعية لمعالجة نقاط اللاعب ==========
     def get_player_row(p_id, multiplier):
         p_entry = full_live_data.get(p_id, {})
         stats = p_entry.get('stats', {})
         e_type = players_full_data.get(p_id, {}).get("element_type", 0)
         
-        # حساب نقاط المساهمات الدفاعية
-        def_pts, def_curr, def_limit = get_defensive_contribution_status(p_id, e_type, full_live_data)
+        # التحقق من استحقاق المساهمة الدفاعية
+        def_earned, def_curr, def_limit = get_defensive_contribution_status(p_id, e_type, full_live_data)
         
-        # النقاط الأساسية من الـ API
+        # النقاط من الـ API فقط
         total_api = stats.get('total_points', 0)
+        final_display_pts = total_api * multiplier
         
-        # حساب النقاط النهائية (مع إضافة نقاط الدفاع إذا لزم الأمر)
-        calculated_pts = total_api
-        if def_pts > 0:
-            calculated_pts += def_pts
-            
-        final_display_pts = calculated_pts * multiplier
-        
-        # ========== أيقونات الأحداث ==========
+        # أيقونات الأحداث
         events = []
         
         goals = stats.get('goals_scored', 0)
@@ -625,16 +606,11 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         if penalties_saved > 0:
             events.append("🧤(PK)")
         
-        # ========== أيقونة المساهمة الدفاعية والعداد ==========
-        def_icon = ""
-        if e_type != 1:  # ليس حارس مرمى
-            if def_pts > 0:
-                def_icon = " 🧱"  # حصل على النقطتين
-            else:
-                def_icon = f" 📊({def_curr}/{def_limit})"  # يظهر التقدم
+        # إيموجي المساهمة الدفاعية فقط
+        def_icon = " 🧱" if def_earned else ""
 
         status_icons = " ".join(events)
-        return final_display_pts, calculated_pts * multiplier, status_icons, def_icon
+        return final_display_pts, total_api * multiplier, status_icons, def_icon
 
     # ========== حساب نقاط الجولة واللاعبين ==========
     event_points_before_hits = 0
@@ -738,12 +714,10 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     
     bb_indicator = " (تشمل البدلاء 💺)" if active_chip == "bboost" else ""
     
-    # تنسيق سطر الانتقالات
     transfers_text = f"🔄 انتقالات الجولة: *{total_transfers}*"
     if transfers_cost > 0:
         transfers_text += f" (-{transfers_cost})"
     
-    # تنسيق سطر نقاط الجولة (إظهار قبل وبعد الخصم)
     if transfers_cost > 0:
         points_display = f"*{event_points_after_hits}* ({event_points_before_hits})"
     else:
@@ -763,10 +737,8 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
     
-    # إضافة قسم البطاقات
     response += chips_status
     
-    # ========== عرض القيمة المالية ==========
     if team_value > 0 or bank_value > 0:
         response += (
             f"💰 **المالية:**\n"
@@ -774,19 +746,11 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             f"• البنك: *£{bank_value:.1f}m*\n"
             f"• الإجمالي: *£{total_value_display:.1f}m*\n\n"
         )
-    # ======================================
     
-    # ========== عرض اللاعبين ==========
     response += "🧑‍🤝‍🧑 **اللاعبون:**\n\n"
     response += players_output
     
-    # ========== تذييل المساهمات الدفاعية ==========
-    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
-    response += "🧱: حصل على نقطتي المساهمة الدفاعية\n"
-    response += "📊: عدد المساهمات الحالي / المطلوب"
-    
     return response
-
 #  نهاية دالة العرض المفصل مع دوالها الفرعية 
 
 
