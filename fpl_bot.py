@@ -115,7 +115,7 @@ def get_league_change_display(current_rank, previous_rank):
     
     if diff > 0:
         formatted_diff = format_number_abbreviation(diff)
-        return f" ❇️ **(+{formatted_diff[1:]})**" if formatted_diff.startswith('+') else f" 🚀 **({formatted_diff})**"
+        return f" 🚀 **(+{formatted_diff[1:]})**" if formatted_diff.startswith('+') else f" 🚀 **({formatted_diff})**"
     elif diff < 0:
         formatted_diff = format_number_abbreviation(diff)
         return f" 🔻 **({formatted_diff})**"
@@ -323,7 +323,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data, history):
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
 
-        # ========== جلب الترتيب الصحيح للجولة ==========
+    # ========== جلب الترتيب الصحيح للجولة ==========
     target_gw_rank = 0
     if history and "current" in history:
         for gw_entry in history["current"]:
@@ -331,8 +331,8 @@ def format_simple_display(manager_id, info, gameweek, picks_data, history):
                 target_gw_rank = safe_int(gw_entry.get("overall_rank"))
                 break
     
-    # استخدام الترتيب من history أو الاحتياطي من info
     rank = target_gw_rank if target_gw_rank > 0 else safe_int(info.get("summary_overall_rank"))
+    rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     # ================================================
     
     live_points_map = get_live_points(gameweek)
@@ -383,7 +383,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data, history):
         f"━━━━━━━━━━━━━━━\n"
         f"⭐️ نقاط الجولة: {points_display}\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
-        f"📈 الترتيب: *{rank:,}*{rank_change_display}\n"
+        f"📈 الترتيب العالمي: *{rank_str}*{rank_change_display}\n"
         f"📊 ترتيب الجولة: *{event_rank_str}*\n"
         f"{transfer_line}\n"
         f"👑 القائد: {captain_name} (*{captain_points}*){tc_indicator}\n"
