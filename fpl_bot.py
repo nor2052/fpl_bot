@@ -75,24 +75,42 @@ def format_number_abbreviation(num):
     else:
         return f"{sign}{abs_num}"
 
-def get_rank_change_display(current_rank, previous_rank):
+def get_rank_change_display(manager_id, current_rank, current_gameweek):
     """
-    إرجاع نص التغير في الترتيب مع إيموجي ورقم مختصر
+    دالة ذكية تحسب وتنسق تغير الترتيب العالمي
+    تجلب الترتيب السابق تلقائياً من history إذا لزم الأمر
     """
-    if previous_rank <= 0 or current_rank <= 0:
+    # إذا لم يكن لدينا ترتيب حالي، لا نعرض شيئاً
+    if current_rank <= 0:
         return ""
     
+    # محاولة الحصول على الترتيب السابق من history
+    previous_rank = 0
+    history = get_manager_history(manager_id)
+    
+    if history and "current" in history:
+        for gw_data in history["current"]:
+            if gw_data.get("event") == current_gameweek - 1:
+                previous_rank = safe_int(gw_data.get("rank"))
+                break
+    
+    # إذا لم نجد ترتيب سابق، لا نعرض شيئاً
+    if previous_rank <= 0:
+        return ""
+    
+    # إذا لم يتغير الترتيب، لا نعرض شيئاً
+    if current_rank == previous_rank:
+        return ""
+    
+    # حساب الفرق
     diff = previous_rank - current_rank  # موجب = تحسن، سالب = تراجع
     
     if diff > 0:
-        # تحسن (ترتيب أفضل - رقم أقل)
         formatted_diff = format_number_abbreviation(diff)
         return f" ❇️ **(+{formatted_diff[1:]})**" if formatted_diff.startswith('+') else f" 🚀 **({formatted_diff})**"
-    elif diff < 0:
-        # تراجع (ترتيب أسوأ - رقم أكبر)
+    else:
         formatted_diff = format_number_abbreviation(diff)
         return f" 🔻 **({formatted_diff})**"
-    return ""
 
 def get_league_change_display(current_rank, previous_rank):
     """
@@ -313,7 +331,6 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
-    previous_rank = safe_int(info.get("previous_overall_rank"))
     
     live_points_map = get_live_points(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
@@ -345,8 +362,9 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     event_points_after_hits = event_points_before_hits - transfers_cost
     transfer_line = f"🔄 الانتقالات: *{transfers_made}*" + (f" (-{transfers_cost})" if transfers_cost > 0 else "")
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
-        # حساب تغيير الترتيب
-    rank_change_display = get_rank_change_display(rank, previous_rank)
+
+    # سطر واحد فقط لحساب تغير الترتيب
+    rank_change_display = get_rank_change_display(manager_id, rank, gameweek)
     
     if transfers_cost > 0:
         points_display = f"**{event_points_after_hits}** ({event_points_before_hits})"
@@ -374,6 +392,8 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     
     return response
 
+#  انتهت دالة العرض البسيط وبعدها دالة العرض المفصل
+
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     name = sanitize_markdown(safe_str(info.get("name")))
     joined = safe_str(info.get("joined_time", ""))[:10]
@@ -382,7 +402,6 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
-    previous_rank = safe_int(info.get("previous_overall_rank"))
     
     # القيمة المالية
     team_value = bank_value = total_value_display = 0.0
@@ -398,7 +417,8 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     full_live_data = get_full_live_data(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
 
-    rank_change_display = get_rank_change_display(rank, previous_rank)
+    # سطر واحد فقط لحساب تغير الترتيب
+    rank_change_display = get_rank_change_display(manager_id, rank, gameweek)
 
     # جلب إحصائيات الجولة (المتوسط)
     gw_stats = get_gameweek_stats(gameweek)
