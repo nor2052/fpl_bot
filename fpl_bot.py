@@ -362,9 +362,43 @@ def get_player_bonus_points(player_id, gameweek):
         logger.warning(f"خطأ في جلب بونص اللاعب {player_id}: {e}")
         return 0
 
+def get_defensive_contribution_points(player_id, element_type, gameweek):
+    """
+    حساب نقاط المساهمات الدفاعية حسب قواعد 2025/26
+    element_type: 1=حارس, 2=مدافع, 3=وسط, 4=مهاجم
+    """
+    # الحراس لا تحتسب لهم مساهمات دفاعية
+    if element_type == 1:  # Goalkeeper
+        return 0, 0, 0
+    
+    full_data = get_full_live_data(gameweek)
+    player_data = full_data.get(player_id, {})
+    def_stats = player_data.get("defensive_contributions", {})
+    
+    cbit_total = def_stats.get("cbit_total", 0)
+    cbirt_total = def_stats.get("cbirt_total", 0)
+    
+    points_earned = 0
+    contributions_used = 0
+    threshold = 0
+    
+    if element_type == 2:  # مدافع
+        threshold = 10
+        contributions_used = cbit_total
+        if cbit_total >= threshold:
+            points_earned = 2
+    elif element_type in [3, 4]:  # وسط أو مهاجم
+        threshold = 12
+        contributions_used = cbirt_total
+        if cbirt_total >= threshold:
+            points_earned = 2
+    
+    return points_earned, contributions_used, threshold
+
+#  نهاية دالة المساهمات الدفاعية
 
 def get_full_live_data(gameweek):
-    """جلب بيانات جميع اللاعبين الكاملة (نقاط + إحصائيات) لجولة محددة"""
+    """جلب بيانات جميع اللاعبين الكاملة (نقاط + إحصائيات + مساهمات دفاعية) لجولة محددة"""
     url = f"{BASE_URL}/event/{gameweek}/live/"
     data = safe_api_request(url, "get_full_live_data")
     
@@ -372,13 +406,30 @@ def get_full_live_data(gameweek):
     if data and "elements" in data:
         for element in data["elements"]:
             player_id = element["id"]
+            stats = element.get("stats", {})
+            
+            # جلب المساهمات الدفاعية
+            clearances = stats.get('clearances', 0)
+            blocks = stats.get('blocks', 0)
+            interceptions = stats.get('interceptions', 0)
+            tackles = stats.get('tackles', 0)
+            recoveries = stats.get('recoveries', 0)
+            
             players_data[player_id] = {
                 "id": player_id,
-                "stats": element.get("stats", {})
+                "stats": stats,
+                "defensive_contributions": {
+                    "clearances": clearances,
+                    "blocks": blocks,
+                    "interceptions": interceptions,
+                    "tackles": tackles,
+                    "recoveries": recoveries,
+                    "cbit_total": clearances + blocks + interceptions + tackles,
+                    "cbirt_total": clearances + blocks + interceptions + tackles + recoveries
+                }
             }
     
     return players_data
-
 
 #  ----------------------------- دوال عرض المعلومات -----------------------------
 
@@ -506,63 +557,72 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     # ==========================================
 
     # ========== دالة فرعية لمعالجة نقاط اللاعب وإحصائياته ==========
-def get_player_status_and_points(p_id, multiplier, is_cap):
-        p_data = full_live_data.get(p_id, {})
-        stats = p_data.get('stats', {})
-        p_info = players_full_data.get(p_id, {})
-        pos_id = p_info.get("element_type") # 1:GK, 2:DEF, 3:MID, 4:FWD
+def get_player_status_and_points(p_id, multiplier, is_cap, element_type):
+    p_data = full_live_data.get(p_id, {})
+    stats = p_data.get('stats', {})
+    def_stats = p_data.get('defensive_contributions', {})
+    
+    # 1. معالجة البونص
+    total_api_points = stats.get('total_points', 0)
+    actual_bonus = stats.get('bonus', 0)
+    base_points = total_api_points - actual_bonus
+    
+    if actual_bonus > 0:
+        points_str = f"{total_api_points * multiplier}"
+        final_p = total_api_points * multiplier
+    else:
+        points_str = f"({base_points * multiplier} + {actual_bonus * multiplier})" if actual_bonus > 0 else f"{base_points * multiplier}"
+        final_p = total_api_points * multiplier
 
-        # --- [حساب نقاط المساهمات الدفاعية - القانون الجديد] ---
-        # CBI = Clearances + Blocks + Interceptions
-        cbi_total = stats.get('clearances', 0) + stats.get('blocks', 0) + stats.get('interceptions', 0)
-        defensive_bonus_points = 0
-        
-        if pos_id == 2: # مدافع
-            if cbi_total >= 10:
-                defensive_bonus_points = 2
-        elif pos_id in [3, 4]: # وسط أو هجوم
-            if cbi_total >= 12:
-                defensive_bonus_points = 2
-        
-        # --- [تعديل النقاط] ---
-        # نعتمد على total_points من الـ API ونضيف لها نقاط الـ Bonus الدفاعي 
-        # (فقط إذا لم تكن الفانتاسي قد أضافتها بالفعل - عادة تضاف مع البونص العادي)
-        total_api_points = stats.get('total_points', 0)
-        actual_bonus = stats.get('bonus', 0)
-        
-        # النقاط النهائية تشمل الـ API + التوقع للمساهمات الدفاعية إذا لم تحسب بعد
-        # ملاحظة: في الغالب الـ API يضيفها في الـ total_points لاحقاً
-        final_p = (total_api_points) * multiplier 
-        points_str = f"{final_p}"
+    # 2. أيقونات الإحصائيات
+    events = []
+    
+    goals = stats.get('goals_scored', 0)
+    if goals > 0:
+        events.append("⚽" * goals)
+    
+    assists = stats.get('assists', 0)
+    if assists > 0:
+        events.append("🅰️" * assists)
+    
+    clean_sheet = stats.get('clean_sheets', 0)
+    if clean_sheet > 0:
+        events.append("🛡️")
+    
+    saves = stats.get('saves', 0)
+    if saves >= 3:
+        events.append(f"🧤({saves})")
+    
+    yellow = stats.get('yellow_cards', 0)
+    if yellow > 0:
+        events.append("🟨")
+    red = stats.get('red_cards', 0)
+    if red > 0:
+        events.append("🟥")
+    
+    own_goals = stats.get('own_goals', 0)
+    if own_goals > 0:
+        events.append("🚫(OG)")
+    
+    penalties_missed = stats.get('penalties_missed', 0)
+    if penalties_missed > 0:
+        events.append("❌(PK)")
+    
+    penalties_saved = stats.get('penalties_saved', 0)
+    if penalties_saved > 0:
+        events.append("🧤(PK)")
+    
+    # ========== المساهمات الدفاعية ==========
+    def_points, def_total, def_threshold = get_defensive_contribution_points(p_id, element_type, gameweek)
+    
+    # إيموجي المساهمات الدفاعية (يظهر فقط عند تحقيق النقطتين)
+    def_icon = " 🧱" if def_points > 0 else ""
 
-        # --- [التنسيق البصري الجميل] ---
-        events = []
-        # الهجوم
-        if stats.get('goals_scored', 0) > 0: events.append("⚽" * stats.get('goals_scored'))
-        if stats.get('assists', 0) > 0: events.append("🅰️" * stats.get('assists'))
-        
-        # الدفاع والكلين شيت
-        if stats.get('clean_sheets', 0) > 0: events.append("🕸")
-        
-        # إظهار أيقونة المساهمات الدفاعية إذا حقق الشرط
-        if defensive_bonus_points > 0:
-            events.append(f"🛡️✨(+2)") # علامة التميز الدفاعي
-        elif cbi_total > 0:
-            events.append(f"📊({cbi_total})") # إظهار العداد إذا لم يصل للهدف بعد
-
-        # الحراس
-        saves = stats.get('saves', 0)
-        if saves >= 3: events.append(f"🧤({saves})")
-        
-        # البطاقات والأحداث السلبية
-        if stats.get('yellow_cards', 0) > 0: events.append("🟨")
-        if stats.get('red_cards', 0) > 0: events.append("🟥")
-
-        status_icons = " ".join(events)
-        return points_str, final_p, status_icons
+    status_icons = " ".join(events)
+    return points_str, final_p, status_icons, def_icon
     
     # ========== حساب نقاط الجولة واللاعبين ==========
-    event_points_before_hits = 0  # النقاط قبل خصم السالب
+    event_points_before_hits = 0
     total_transfers = safe_int(info.get("total_transfers"))
     event_rank = 0
     transfers_cost = 0
@@ -576,10 +636,15 @@ def get_player_status_and_points(p_id, multiplier, is_cap):
                 players_output += f"{position_names[pos_id]}:\n"
                 for pick in pos_players:
                     p_id = pick['element']
+                    element_type = players_full_data.get(p_id, {}).get('element_type', 0)
                     mult = 3 if (pick.get('is_captain') and active_chip == '3xc') else (2 if pick.get('is_captain') else 1)
                     
                     p_name = sanitize_markdown(players_dict.get(p_id, "Unknown"))
-                    p_pts_str, p_pts_val, p_icons = get_player_status_and_points(p_id, mult, pick.get('is_captain'))
+                    p_pts_str, p_pts_val, p_icons, def_icon = get_player_status_and_points(p_id, mult, pick.get('is_captain'), element_type)
+                    
+                    # إضافة نقاط الدفاع إلى المجموع إذا وجدت
+                    if def_icon:
+                        p_pts_val += 2
                     
                     cap_tag = "👑" if pick.get('is_captain') else ""
                     tc_tag = "×3🔥" if (pick.get('is_captain') and active_chip == '3xc') else ""
@@ -591,7 +656,7 @@ def get_player_status_and_points(p_id, multiplier, is_cap):
                     elif vc_tag:
                         captain_display = vc_tag
                     
-                    players_output += f"• {p_name} {captain_display} {p_icons}: **{p_pts_str}**\n"
+                    players_output += f"• {p_name} {captain_display} {p_icons}{def_icon}: **{p_pts_str}**\n"
                     event_points_before_hits += p_pts_val
                 players_output += "\n"
         
@@ -600,9 +665,14 @@ def get_player_status_and_points(p_id, multiplier, is_cap):
             players_output += "🔄 **اللاعبون البدلاء:**\n\n"
             for pick in picks_data["picks"][11:]:
                 p_id = pick['element']
+                element_type = players_full_data.get(p_id, {}).get('element_type', 0)
                 p_name = sanitize_markdown(players_dict.get(p_id, "Unknown"))
-                p_pts_str, p_pts_val, p_icons = get_player_status_and_points(p_id, 1, False)
-                players_output += f"• {p_name} {p_icons}: **{p_pts_str}**\n"
+                p_pts_str, p_pts_val, p_icons, def_icon = get_player_status_and_points(p_id, 1, False, element_type)
+                
+                if def_icon:
+                    p_pts_val += 2
+                
+                players_output += f"• {p_name} {p_icons}{def_icon}: **{p_pts_str}**\n"
                 event_points_before_hits += p_pts_val
             players_output += "\n"
         
