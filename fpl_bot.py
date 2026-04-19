@@ -307,7 +307,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
         f"⭐️ نقاط الجولة: {points_display}\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
         f"📈 الترتيب: *{rank:,}*\n"
-        f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
+        f"📊 ترتيب الجولة: *{event_rank_str}*\n"
         f"{transfer_line}\n"
         f"👑 القائد: {captain_name} (*{captain_points}*){tc_indicator}\n"
     )
@@ -453,7 +453,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             if active_chip == chip_key:
                 chips_status += f"• **{chip_name}: تلعب الآن 🟢**\n"
             elif usage:
-                chips_status += f"• ~{chip_name}~: الجولة {usage['event']} 🔴\n"
+                chips_status += f"• ~~{chip_name}~~: الجولة {usage['event']} 🔴\n"
             else:
                 chips_status += f"• _{chip_name}_: لم تلعب 🟡\n"
         chips_status += "\n"
@@ -481,7 +481,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"📅 انضم: {joined}\n"
         f"📊 **الجولة {gameweek}**\n"
         f"⭐ نقاط الجولة: {points_display}{bb_indicator}\n"
-        f"🔝 متوسط الجولة: *{avg_points}* {diff_emoji} {diff_text}\n"
+        f"🌍 متوسط نقاط الجولة: *{avg_points}*\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
         f"📈 الترتيب العالمي: *{rank_str}*\n"
         f"{transfers_text}\n"
