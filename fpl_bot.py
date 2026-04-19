@@ -552,7 +552,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                 "name": f"{player['first_name']} {player['second_name']}"
             }
 
-    position_names = {1: "🧤 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
+    position_names = {1: "🥅 الحراسة", 2: "🪖 الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
     # ==========================================
 
     # ========== دالة فرعية لمعالجة نقاط اللاعب ==========
@@ -580,7 +580,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             events.append("🅰️" * assists)
         
         clean_sheet = stats.get('clean_sheets', 0)
-        if clean_sheet > 0:
+        if clean_sheet > 0 and e_type in [1, 2, 3]:
             events.append("🛡️")
         
         saves = stats.get('saves', 0)
