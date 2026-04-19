@@ -363,27 +363,41 @@ def get_player_bonus_points(player_id, gameweek):
         return 0
 
 def get_defensive_contribution_status(player_id, element_type, full_live_data):
-    """أسرع طريقة للتحقق من استحقاق النقطتين"""
+    """التحقق من استحقاق نقطتي المساهمة الدفاعية باستخدام الحقول الصحيحة"""
     p_entry = full_live_data.get(player_id, {})
-    if not p_entry or element_type == 1: # الحراس مستبعدون
+    if not p_entry or element_type == 1:  # الحراس مستبعدون
         return 0, 0, 0
 
     metrics = p_entry.get("def_metrics", {})
     
-    if element_type == 2: # مدافع
-        current = metrics.get("cbit", 0)
+    # محاولة استخدام الحقل المدمج أولاً إذا كان موجوداً
+    cbi_field = metrics.get("cbi_field", 0)
+    
+    if element_type == 2:  # مدافع
+        # للمدافعين: استخدام CBIT (clearances + blocks + interceptions + tackles)
+        if cbi_field > 0:
+            current = cbi_field + metrics.get("tackles", 0)
+        else:
+            current = metrics.get("cbit", 0)
         threshold = 10
-    else: # وسط أو مهاجم
-        current = metrics.get("cbirt", 0)
+    else:  # وسط أو مهاجم
+        # للوسط والمهاجمين: استخدام CBIRT (CBIT + recoveries)
+        if cbi_field > 0:
+            current = cbi_field + metrics.get("tackles", 0) + metrics.get("recoveries", 0)
+        else:
+            current = metrics.get("cbirt", 0)
         threshold = 12
-        
+    
+    # التحقق من تجاوز الحد الأدنى
     points = 2 if current >= threshold else 0
+    
     return points, current, threshold
+
 
 #  نهاية دالة المساهمات الدفاعية
 
 def get_full_live_data(gameweek):
-    """جلب بيانات اللاعبين الخام وحساب عداد المساهمات الدفاعية فورياً"""
+    """جلب بيانات اللاعبين الخام وحساب عداد المساهمات الدفاعية باستخدام الحقول الصحيحة"""
     url = f"{BASE_URL}/event/{gameweek}/live/"
     data = safe_api_request(url, "get_full_live_data")
     
@@ -393,22 +407,41 @@ def get_full_live_data(gameweek):
             player_id = element["id"]
             stats = element.get("stats", {})
             
-            # الأرقام الخام المطلوبة للمساهمات
-            c = stats.get('clearances', 0)
-            b = stats.get('blocks', 0)
-            i = stats.get('interceptions', 0)
-            t = stats.get('tackles', 0)
-            r = stats.get('recoveries', 0)
+            # الحقول الصحيحة للمساهمات الدفاعية حسب FPL API
+            # ملاحظة: بعض الحقول قد تكون ضمن stats أو في مستوى أعلى
+            clearances = stats.get('clearances', 0)
+            blocks = stats.get('blocks', 0)
+            interceptions = stats.get('interceptions', 0)
+            tackles = stats.get('tackles', 0)
+            recoveries = stats.get('recoveries', 0)
+            
+            # الحقل المدمج الذي يوفره API أحياناً
+            cbi = stats.get('clearances_blocks_interceptions', 0)
+            
+            # إذا كان الحقل المدمج موجوداً، استخدمه لأنه أكثر دقة
+            if cbi > 0:
+                cbit_total = cbi + tackles
+            else:
+                cbit_total = clearances + blocks + interceptions + tackles
+            
+            cbirt_total = cbit_total + recoveries
             
             players_data[player_id] = {
                 "id": player_id,
                 "stats": stats,
                 "def_metrics": {
-                    "cbit": c + b + i + t,       # للمدافعين
-                    "cbirt": c + b + i + t + r   # للوسط والمهاجمين
+                    "cbit": cbit_total,           # للمدافعين (CBIT)
+                    "cbirt": cbirt_total,         # للوسط والمهاجمين (CBIRT)
+                    "clearances": clearances,
+                    "blocks": blocks,
+                    "interceptions": interceptions,
+                    "tackles": tackles,
+                    "recoveries": recoveries,
+                    "cbi_field": cbi              # للحقل المدمج إن وجد
                 }
             }
     return players_data
+
 
 #  ----------------------------- دوال عرض المعلومات -----------------------------
 
