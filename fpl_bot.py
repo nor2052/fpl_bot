@@ -553,74 +553,73 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                 "name": f"{player['first_name']} {player['second_name']}"
             }
 
-    position_names = {1: "🥅 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
+    position_names = {1: "🧤 الحراسة", 2: "🛡️ الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
     # ==========================================
 
     # ========== دالة فرعية لمعالجة نقاط اللاعب وإحصائياته ==========
-def get_player_status_and_points(p_id, multiplier, is_cap, element_type):
-    p_data = full_live_data.get(p_id, {})
-    stats = p_data.get('stats', {})
-    def_stats = p_data.get('defensive_contributions', {})
-    
-    # 1. معالجة البونص
-    total_api_points = stats.get('total_points', 0)
-    actual_bonus = stats.get('bonus', 0)
-    base_points = total_api_points - actual_bonus
-    
-    if actual_bonus > 0:
-        points_str = f"{total_api_points * multiplier}"
-        final_p = total_api_points * multiplier
-    else:
-        points_str = f"({base_points * multiplier} + {actual_bonus * multiplier})" if actual_bonus > 0 else f"{base_points * multiplier}"
-        final_p = total_api_points * multiplier
+    def get_player_status_and_points(p_id, multiplier, is_cap, element_type):
+        p_data = full_live_data.get(p_id, {})
+        stats = p_data.get('stats', {})
+        
+        # 1. معالجة البونص
+        total_api_points = stats.get('total_points', 0)
+        actual_bonus = stats.get('bonus', 0)
+        base_points = total_api_points - actual_bonus
+        
+        if actual_bonus > 0:
+            points_str = f"{total_api_points * multiplier}"
+            final_p = total_api_points * multiplier
+        else:
+            points_str = f"({base_points * multiplier} + {actual_bonus * multiplier})" if actual_bonus > 0 else f"{base_points * multiplier}"
+            final_p = total_api_points * multiplier
 
-    # 2. أيقونات الإحصائيات
-    events = []
-    
-    goals = stats.get('goals_scored', 0)
-    if goals > 0:
-        events.append("⚽" * goals)
-    
-    assists = stats.get('assists', 0)
-    if assists > 0:
-        events.append("🅰️" * assists)
-    
-    clean_sheet = stats.get('clean_sheets', 0)
-    if clean_sheet > 0:
-        events.append("🛡️")
-    
-    saves = stats.get('saves', 0)
-    if saves >= 3:
-        events.append(f"🧤({saves})")
-    
-    yellow = stats.get('yellow_cards', 0)
-    if yellow > 0:
-        events.append("🟨")
-    red = stats.get('red_cards', 0)
-    if red > 0:
-        events.append("🟥")
-    
-    own_goals = stats.get('own_goals', 0)
-    if own_goals > 0:
-        events.append("🚫(OG)")
-    
-    penalties_missed = stats.get('penalties_missed', 0)
-    if penalties_missed > 0:
-        events.append("❌(PK)")
-    
-    penalties_saved = stats.get('penalties_saved', 0)
-    if penalties_saved > 0:
-        events.append("🧤(PK)")
-    
-    # ========== المساهمات الدفاعية ==========
-    def_points, def_total, def_threshold = get_defensive_contribution_points(p_id, element_type, gameweek)
-    
-    # إيموجي المساهمات الدفاعية (يظهر فقط عند تحقيق النقطتين)
-    def_icon = " 🧱" if def_points > 0 else ""
+        # 2. أيقونات الإحصائيات
+        events = []
+        
+        goals = stats.get('goals_scored', 0)
+        if goals > 0:
+            events.append("⚽" * goals)
+        
+        assists = stats.get('assists', 0)
+        if assists > 0:
+            events.append("🅰️" * assists)
+        
+        clean_sheet = stats.get('clean_sheets', 0)
+        if clean_sheet > 0:
+            events.append("🛡️")
+        
+        saves = stats.get('saves', 0)
+        if saves >= 3:
+            events.append(f"🧤({saves})")
+        
+        yellow = stats.get('yellow_cards', 0)
+        if yellow > 0:
+            events.append("🟨")
+        red = stats.get('red_cards', 0)
+        if red > 0:
+            events.append("🟥")
+        
+        own_goals = stats.get('own_goals', 0)
+        if own_goals > 0:
+            events.append("🚫(OG)")
+        
+        penalties_missed = stats.get('penalties_missed', 0)
+        if penalties_missed > 0:
+            events.append("❌(PK)")
+        
+        penalties_saved = stats.get('penalties_saved', 0)
+        if penalties_saved > 0:
+            events.append("🧤(PK)")
+        
+        # ========== المساهمات الدفاعية ==========
+        def_points, def_total, def_threshold = get_defensive_contribution_points(p_id, element_type, gameweek)
+        
+        # إيموجي المساهمات الدفاعية (يظهر فقط عند تحقيق النقطتين)
+        def_icon = " 🧱" if def_points > 0 else ""
 
-    status_icons = " ".join(events)
-    return points_str, final_p, status_icons, def_icon
-    
+        status_icons = " ".join(events)
+        return points_str, final_p, status_icons, def_icon
+
     # ========== حساب نقاط الجولة واللاعبين ==========
     event_points_before_hits = 0
     total_transfers = safe_int(info.get("total_transfers"))
@@ -776,6 +775,7 @@ def get_player_status_and_points(p_id, multiplier, is_cap, element_type):
     response += players_output
     
     return response
+
 
 #  نهاية دالة العرض المفصل مع دوالها الفرعية 
 
