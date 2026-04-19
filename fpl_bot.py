@@ -35,12 +35,15 @@ def safe_str(value):
     return str(value) if value is not None else "غير معروف"
 
 def sanitize_markdown(text):
-    """إزالة الأحرف التي قد تعطل تنسيق Markdown"""
+    """تنظيف النص من أحرف Markdown الضارة"""
     if not text:
         return "غير معروف"
-    dangerous_chars = ['[', ']', '(', ')', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in dangerous_chars:
+    
+    # الهروب من جميع الأحرف الخاصة بـ Markdown
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
         text = text.replace(char, f'\\{char}')
+    
     return text
 
 def safe_api_request(url, debug_name="API Request"):
@@ -612,13 +615,14 @@ def format_leagues_display(manager_id, info, gameweek, history):
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n\n"
         for idx, league in enumerate(classic_leagues[:20], 1):
-            league_name = sanitize_markdown(safe_str(league.get("name", "غير معروف")))
+            # تنظيف اسم الدوري أولاً
+            league_name_raw = safe_str(league.get("name", "غير معروف"))
+            league_name = sanitize_markdown(league_name_raw)
+            
             league_rank = league.get('entry_rank') or league.get('rank')
             league_total = league.get('rank_count')
-            
             previous_league_rank = league.get('entry_last_rank') or league.get('last_rank', 0)
             
-            # حساب نص تغير ترتيب الدوري
             league_change_display = get_league_change_display(league_rank, previous_league_rank) if league_rank else ""
             
             if league_rank is not None and league_total is not None:
@@ -633,7 +637,8 @@ def format_leagues_display(manager_id, info, gameweek, history):
     if history and "past" in history and history["past"]:
         response += "📜 **المواسم السابقة:**\n"
         for season in history["past"][-5:]:
-            season_name = sanitize_markdown(safe_str(season.get("season_name")))
+            season_name_raw = safe_str(season.get("season_name"))
+            season_name = sanitize_markdown(season_name_raw)
             season_points = safe_int(season.get("total_points"))
             season_rank = safe_int(season.get("rank"))
             season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
