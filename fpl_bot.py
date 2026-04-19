@@ -883,7 +883,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             history = get_manager_history(manager_id)
             
             text_map = {
-                "simple": format_simple_display(manager_id, info, gameweek, picks_data),
+                "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
                 "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
                 "leagues": format_leagues_display(manager_id, info, gameweek, history),
                 "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
