@@ -58,6 +58,59 @@ def safe_api_request(url, debug_name="API Request"):
             logger.warning(f"محاولة {attempt+1} فشلت: {e}")
     return None
 
+def format_number_abbreviation(num):
+    """تحويل الأرقام الكبيرة إلى اختصارات (K, M)"""
+    if num is None or num == 0:
+        return "0"
+    
+    abs_num = abs(num)
+    sign = "+" if num > 0 else "-"
+    
+    if abs_num >= 1_000_000:
+        value = abs_num / 1_000_000
+        return f"{sign}{value:.1f}M".replace('.0M', 'M')
+    elif abs_num >= 1_000:
+        value = abs_num / 1_000
+        return f"{sign}{value:.0f}K".replace('.0K', 'K')
+    else:
+        return f"{sign}{abs_num}"
+
+def get_rank_change_display(current_rank, previous_rank):
+    """
+    إرجاع نص التغير في الترتيب مع إيموجي ورقم مختصر
+    """
+    if previous_rank <= 0 or current_rank <= 0:
+        return ""
+    
+    diff = previous_rank - current_rank  # موجب = تحسن، سالب = تراجع
+    
+    if diff > 0:
+        # تحسن (ترتيب أفضل - رقم أقل)
+        formatted_diff = format_number_abbreviation(diff)
+        return f" ❇️ **(+{formatted_diff[1:]})**" if formatted_diff.startswith('+') else f" 🚀 **({formatted_diff})**"
+    elif diff < 0:
+        # تراجع (ترتيب أسوأ - رقم أكبر)
+        formatted_diff = format_number_abbreviation(diff)
+        return f" 🔻 **({formatted_diff})**"
+    return ""
+
+def get_league_change_display(current_rank, previous_rank):
+    """
+    إرجاع نص التغير في ترتيب الدوري مع إيموجي ورقم مختصر
+    """
+    if previous_rank <= 0 or current_rank <= 0:
+        return ""
+    
+    diff = previous_rank - current_rank  # موجب = تحسن، سالب = تراجع
+    
+    if diff > 0:
+        formatted_diff = format_number_abbreviation(diff)
+        return f" ❇️ **(+{formatted_diff[1:]})**" if formatted_diff.startswith('+') else f" 🚀 **({formatted_diff})**"
+    elif diff < 0:
+        formatted_diff = format_number_abbreviation(diff)
+        return f" 🔻 **({formatted_diff})**"
+    return ""
+    
 # ============================================================
 # دوال جلب البيانات من API
 # ============================================================
@@ -147,13 +200,13 @@ def get_teams_dict():
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_teams_dict")
     
     team_emojis = {
-        "Arsenal": "🚀", "Aston Villa": "🏰", "Bournemouth": "🍒", "Brentford": "🐝",
+        "Arsenal": "🔫", "Aston Villa": "🏰", "Bournemouth": "🍒", "Brentford": "🐝",
         "Brighton and Hove Albion": "🐦", "Brighton": "🐦", "Chelsea": "🦁", "Crystal Palace": "🦅",
         "Everton": "🍬", "Fulham": "🏁", "Ipswich Town": "🚜", "Leicester City": "🦊",
         "Liverpool": "🐦‍🔥", "Manchester City": "💎", "Manchester United": "🔱", "Newcastle United": "🐦‍⬛",
         "Nottingham Forest": "🎋", "Southampton": "⚪", "Tottenham Hotspur": "🐔", "West Ham United": "⚒️",
         "Wolverhampton Wanderers": "🐱", "Leeds United": "🦚", "Burnley": "🧱", "Sunderland": "🐈",
-        "ARS": "🚀", "AVL": "🏰", "BOU": "🍒", "BRE": "🐝", "BHA": "🐦", "CHE": "🦁",
+        "ARS": "🔫", "AVL": "🏰", "BOU": "🍒", "BRE": "🐝", "BHA": "🐦", "CHE": "🦁",
         "CRY": "🦅", "EVE": "🍬", "FUL": "🏁", "IPS": "🚜", "LEI": "🦊", "LIV": "🐦‍🔥",
         "MCI": "💎", "MUN": "🔱", "NEW": "🐦‍⬛", "NFO": "🎋", "SOU": "⚪", "TOT": "🐔",
         "WHU": "⚒️", "WOL": "🐱", "LEE": "🦚", "BUR": "🧱", "SUN": "🐈"
@@ -260,6 +313,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
+    previous_rank = safe_int(info.get("previous_overall_rank"))
     
     live_points_map = get_live_points(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
@@ -291,6 +345,8 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
     event_points_after_hits = event_points_before_hits - transfers_cost
     transfer_line = f"🔄 الانتقالات: *{transfers_made}*" + (f" (-{transfers_cost})" if transfers_cost > 0 else "")
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
+        # حساب تغيير الترتيب
+    rank_change_display = get_rank_change_display(rank, previous_rank)
     
     if transfers_cost > 0:
         points_display = f"**{event_points_after_hits}** ({event_points_before_hits})"
@@ -306,7 +362,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data):
         f"━━━━━━━━━━━━━━━\n"
         f"⭐️ نقاط الجولة: {points_display}\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
-        f"📈 الترتيب: *{rank:,}*\n"
+        f"📈 الترتيب: *{rank:,}*{rank_change_display}\n"
         f"📊 ترتيب الجولة: *{event_rank_str}*\n"
         f"{transfer_line}\n"
         f"👑 القائد: {captain_name} (*{captain_points}*){tc_indicator}\n"
@@ -326,6 +382,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     
     total_points = safe_int(info.get("summary_overall_points"))
     rank = safe_int(info.get("summary_overall_rank"))
+    previous_rank = safe_int(info.get("previous_overall_rank"))
     
     # القيمة المالية
     team_value = bank_value = total_value_display = 0.0
@@ -340,6 +397,8 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     # جلب البيانات
     full_live_data = get_full_live_data(gameweek)
     active_chip = picks_data.get("active_chip") if picks_data else None
+
+    rank_change_display = get_rank_change_display(rank, previous_rank)
 
     # جلب إحصائيات الجولة (المتوسط)
     gw_stats = get_gameweek_stats(gameweek)
@@ -483,7 +542,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         f"⭐ نقاط الجولة: {points_display}{bb_indicator}\n"
         f"🌍 متوسط نقاط الجولة: *{avg_points}*\n"
         f"🏆 النقاط الكلية: *{total_points:,}*\n"
-        f"📈 الترتيب العالمي: *{rank_str}*\n"
+        f"📈 الترتيب العالمي: *{rank_str}*{rank_change_display}\n"
         f"{transfers_text}\n"
         f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
     )
@@ -505,10 +564,16 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
 
 def format_leagues_display(manager_id, info, gameweek, history):
     name = sanitize_markdown(safe_str(info.get("name")))
-    response = f"🏆 **الدوريات والمواسم**\n🎮 {name}\n🆔 `{manager_id}`\n📊 **الجولة {gameweek}**\n"
     
     leagues = info.get("leagues", {})
     classic_leagues = leagues.get("classic", [])
+    
+    response = (
+        f"🏆 **الدوريات والمواسم**\n"
+        f"🎮 {name}\n"
+        f"🆔 `{manager_id}`\n"
+        f"📊 **الجولة {gameweek}**\n"
+    )
     
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n\n"
@@ -516,10 +581,16 @@ def format_leagues_display(manager_id, info, gameweek, history):
             league_name = sanitize_markdown(safe_str(league.get("name", "غير معروف")))
             league_rank = league.get('entry_rank') or league.get('rank')
             league_total = league.get('rank_count')
+            
+            previous_league_rank = league.get('entry_last_rank') or league.get('last_rank', 0)
+            
+            # حساب نص تغير ترتيب الدوري
+            league_change_display = get_league_change_display(league_rank, previous_league_rank) if league_rank else ""
+            
             if league_rank is not None and league_total is not None:
-                response += f"{idx}. {league_name}: {league_rank:,} / {league_total:,}\n\n"
+                response += f"{idx}. {league_name}: {league_rank:,} / {league_total:,}{league_change_display}\n\n"
             elif league_rank is not None:
-                response += f"{idx}. {league_name}: الترتيب {league_rank}\n\n"
+                response += f"{idx}. {league_name}: الترتيب {league_rank}{league_change_display}\n\n"
             else:
                 response += f"{idx}. {league_name}\n\n"
     else:
