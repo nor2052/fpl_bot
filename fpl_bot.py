@@ -549,7 +549,9 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             if active_chip == chip_key:
                 chips_status += f"• **{chip_name}: تلعب الآن 🟢**\n"
             elif usage:
-                chips_status += f"• ||{chip_name}||: الجولة {usage['event']} 🔴\n"
+                                # الهروب من علامات التنسيق الخاصة
+                chip_name_escaped = chip_name.replace('||', '\\|\\|').replace('¬', '\\¬')
+                chips_status += f"• ~~{chip_name_escaped}~~: الجولة {usage['event']} 🔴\n"
             else:
                 chips_status += f"• _{chip_name}_: لم تلعب 🟡\n"
         chips_status += "\n"
