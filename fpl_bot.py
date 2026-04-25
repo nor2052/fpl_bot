@@ -35,34 +35,13 @@ def safe_str(value):
     return str(value) if value is not None else "غير معروف"
 
 def sanitize_markdown(text):
-    """تنظيف النص من أحرف Markdown الضارة"""
+    """إزالة الأحرف التي قد تعطل تنسيق Markdown"""
     if not text:
         return "غير معروف"
-    
-    # الهروب من جميع الأحرف الخاصة بـ Markdown
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in special_chars:
+    dangerous_chars = ['[', ']', '(', ')', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in dangerous_chars:
         text = text.replace(char, f'\\{char}')
-    
     return text
-
-def sanitize_chip_name(chip_name):
-    """تنظيف اسم البطاقة من علامات التنسيق الضارة بـ Markdown"""
-    if not chip_name:
-        return chip_name
-    
-    # إزالة علامات التنسيق ثنائية الحرف أولاً
-    chip_name = chip_name.replace('||', '')
-    chip_name = chip_name.replace('__', '')
-    chip_name = chip_name.replace('**', '')
-    chip_name = chip_name.replace('~~', '')
-    
-    # ثم الهروب من الأحرف الخاصة المتبقية
-    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in special_chars:
-        chip_name = chip_name.replace(char, f'\\{char}')
-    
-    return chip_name
 
 def safe_api_request(url, debug_name="API Request"):
     """تنفيذ طلب API بأمان مع إعادة المحاولة"""
@@ -556,7 +535,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             "freehit": "🃏 ضربة الحظ (FH)",
             "wildcard": "🛠 بطاقة الوحش (WC)"
         }
-        chips_status = "🎭 **حالة البطاقات (Chips):**\n"
+        chips_status = "🎭 ** البطاقات (Chips):**\n"
         for chip_key, chip_name in chips_info.items():
             all_usages = [c for c in used_chips if c['name'] == chip_key]
             if gameweek <= 19:
@@ -564,15 +543,12 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             else:
                 usage = next((c for c in all_usages if c['event'] > 19), None)
             
-            # تنظيف اسم البطاقة من أي علامات تنسيق
-            chip_name_clean = sanitize_chip_name(chip_name)
-            
             if active_chip == chip_key:
-                chips_status += f"• **{chip_name_clean}: تلعب الآن 🟢**\n"
+                chips_status += f"• **{chip_name}: تلعب الآن 🟢**\n"
             elif usage:
-                chips_status += f"• ~~{chip_name_clean}~~: الجولة {usage['event']} 🔴\n"
+                chips_status += f"• ~~{chip_name}~~ : الجولة {usage['event']} 🔴~~\n"
             else:
-                chips_status += f"• _{chip_name_clean}_: لم تلعب 🟡\n"
+                chips_status += f"• _{chip_name}_: لم تلعب 🟡\n"
         chips_status += "\n"
     else:
         chips_status = "🎭 **حالة البطاقات (Chips):** لا توجد بيانات متاحة حالياً\n\n"
@@ -636,14 +612,13 @@ def format_leagues_display(manager_id, info, gameweek, history):
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n\n"
         for idx, league in enumerate(classic_leagues[:20], 1):
-            # تنظيف اسم الدوري أولاً
-            league_name_raw = safe_str(league.get("name", "غير معروف"))
-            league_name = sanitize_markdown(league_name_raw)
-            
+            league_name = sanitize_markdown(safe_str(league.get("name", "غير معروف")))
             league_rank = league.get('entry_rank') or league.get('rank')
             league_total = league.get('rank_count')
+            
             previous_league_rank = league.get('entry_last_rank') or league.get('last_rank', 0)
             
+            # حساب نص تغير ترتيب الدوري
             league_change_display = get_league_change_display(league_rank, previous_league_rank) if league_rank else ""
             
             if league_rank is not None and league_total is not None:
@@ -658,8 +633,7 @@ def format_leagues_display(manager_id, info, gameweek, history):
     if history and "past" in history and history["past"]:
         response += "📜 **المواسم السابقة:**\n"
         for season in history["past"][-5:]:
-            season_name_raw = safe_str(season.get("season_name"))
-            season_name = sanitize_markdown(season_name_raw)
+            season_name = sanitize_markdown(safe_str(season.get("season_name")))
             season_points = safe_int(season.get("total_points"))
             season_rank = safe_int(season.get("rank"))
             season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
