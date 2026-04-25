@@ -508,6 +508,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                     event_points_before_hits += p_pts_raw
                 players_output += "\n"
         
+        # عرض اللاعبين البدلاء (الاحتياط)
         if len(picks_data["picks"]) > 11:
             players_output += "🔄 **اللاعبون البدلاء:**\n\n"
             for pick in picks_data["picks"][11:]:
@@ -515,7 +516,9 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
                 p_name = sanitize_markdown(players_dict.get(p_id, "Unknown"))
                 p_pts_val, p_pts_raw, p_icons, def_icon = get_player_row(p_id, 1)
                 players_output += f"• {p_name} {p_icons}{def_icon}: **{p_pts_val}**\n"
-                event_points_before_hits += p_pts_raw
+                # ✅ إضافة نقاط البدلاء فقط عند تفعيل بطاقة bench boost
+                if active_chip == "bboost":
+                    event_points_before_hits += p_pts_raw
             players_output += "\n"
         
         if "entry_history" in picks_data:
