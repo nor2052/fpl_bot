@@ -615,7 +615,14 @@ def format_leagues_display(manager_id, info, gameweek, history):
     if classic_leagues:
         response += "🏅 **المجموعات (الدوريات):**\n\n"
         for idx, league in enumerate(classic_leagues[:20], 1):
-            league_name = sanitize_markdown(safe_str(league.get("name", "غير معروف")))
+
+            raw_name = safe_str(league.get("name", "غير معروف"))
+            # إزالة الأحرف التي تفشل مع Markdown حتى بعد sanitize
+            clean_name = raw_name.replace('*', '✦').replace('_', '-').replace('`', "'")
+            clean_name = clean_name.replace('[', '(').replace(']', ')')
+            # الآن نطبق sanitize_markdown بأمان
+            league_name = sanitize_markdown(clean_name)
+            
             league_rank = league.get('entry_rank') or league.get('rank')
             league_total = league.get('rank_count')
             
@@ -624,23 +631,39 @@ def format_leagues_display(manager_id, info, gameweek, history):
             # حساب نص تغير ترتيب الدوري
             league_change_display = get_league_change_display(league_rank, previous_league_rank) if league_rank else ""
             
-            if league_rank is not None and league_total is not None:
-                response += f"{idx}. {league_name}: {league_rank:,} / {league_total:,}{league_change_display}\n\n"
-            elif league_rank is not None:
-                response += f"{idx}. {league_name}: الترتيب {league_rank}{league_change_display}\n\n"
-            else:
-                response += f"{idx}. {league_name}\n\n"
+            try:
+                if league_rank is not None and league_total is not None:
+                    response += f"{idx}. {league_name}: {league_rank:,} / {league_total:,}{league_change_display}\n\n"
+                elif league_rank is not None:
+                    response += f"{idx}. {league_name}: الترتيب {league_rank}{league_change_display}\n\n"
+                else:
+                    response += f"{idx}. {league_name}\n\n"
+            except Exception as e:
+                # في حال فشل التنسيق، نستخدم أبسط صيغة ممكنة
+                logger.warning(f"⚠️ فشل تنسيق الدوري {idx} للمدرب {manager_id}: {e}")
+                try:
+                    # محاولة أخيرة بنص خالٍ تماماً من التنسيق
+                    response += f"{idx}. {clean_name}\n\n"
+                except:
+                    response += f"{idx}. (اسم غير قابل للعرض)\n\n"
     else:
         response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
-    
+
     if history and "past" in history and history["past"]:
         response += "📜 **المواسم السابقة:**\n"
         for season in history["past"][-5:]:
-            season_name = sanitize_markdown(safe_str(season.get("season_name")))
-            season_points = safe_int(season.get("total_points"))
-            season_rank = safe_int(season.get("rank"))
-            season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
-            response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
+            try:
+                raw_season_name = safe_str(season.get("season_name"))
+                # تنظيف اسم الموسم
+                clean_season = raw_season_name.replace('*', '✦').replace('_', '-').replace('`', "'")
+                season_name = sanitize_markdown(clean_season)
+                season_points = safe_int(season.get("total_points"))
+                season_rank = safe_int(season.get("rank"))
+                season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
+                response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
+            except Exception as e:
+                logger.warning(f"⚠️ فشل تنسيق موسم للمدرب {manager_id}: {e}")
+                response += f"• {clean_season}: {season_points} نقطة\n"
     else:
         response += "📜 **المواسم السابقة:** لا يوجد تاريخ للمواسم السابقة\n\n"
     
