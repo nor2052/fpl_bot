@@ -735,6 +735,63 @@ def format_fixtures_display(manager_id, info, gameweek, history):
     
     return response
 
+def format_deadline_display(manager_id, info, gameweek):
+    """
+    عرض مواعيد الجولة: تاريخ التحديث، بداية الجولة (أول مباراة)،
+    نهاية الجولة (آخر مباراة)، وموعد غلق الانتقالات (deadline)
+    - جميع الأوقات بتوقيت مكة المكرمة حصراً
+    """
+    name = sanitize_markdown(safe_str(info.get("name")))
+    
+    # وقت التحديث الحالي
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time_str = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date_str = now_mecca.strftime("%d/%m/%Y")
+    
+    # موعد غلق الانتقالات (deadline)
+    deadline_display = "غير معروف"
+    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_deadline")
+    if data and "events" in data:
+        for event in data["events"]:
+            if event.get("id") == gameweek:
+                kickoff = event.get("deadline_time")
+                if kickoff:
+                    deadline_time = format_match_time(kickoff)
+                    deadline_date = kickoff[:10] if len(kickoff) >= 10 else "غير معروف"
+                    deadline_display = f"{deadline_time} - {deadline_date}"
+                break
+    
+    # أول وآخر مباراة في الجولة
+    first_match_display = "غير معروف"
+    last_match_display = "غير معروف"
+    fixtures = get_fixtures(gameweek)
+    if fixtures:
+        valid = [f for f in fixtures if f.get("kickoff_time")]
+        if valid:
+            sorted_fixtures = sorted(valid, key=lambda x: x["kickoff_time"])
+            first = sorted_fixtures[0]["kickoff_time"]
+            last = sorted_fixtures[-1]["kickoff_time"]
+            
+            first_time = format_match_time(first)
+            first_date = first[:10]
+            last_time = format_match_time(last)
+            last_date = last[:10]
+            
+            first_match_display = f"{first_time} - {first_date}"
+            last_match_display = f"{last_time} - {last_date}"
+    
+    response = (
+        f"📅 **مواعيد الجولة {gameweek}**\n"
+        f"👤 {name}\n"
+        f"🕐 آخر تحديث: {update_time_str} - {update_date_str} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔒 **موعد غلق الانتقالات:** {deadline_display}\n"
+        f"⚽ **بداية الجولة (أول مباراة):** {first_match_display}\n"
+        f"🏁 **نهاية الجولة (آخر مباراة):** {last_match_display}\n"
+        f"\n🕌 جميع الأوقات بتوقيت مكة المكرمة (UTC+3)"
+    )
+    return response
+
 # ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
@@ -747,7 +804,8 @@ def get_buttons(manager_id, gameweek, current_view):
         [InlineKeyboardButton("📋 عرض بسيط", callback_data=f"simple_{manager_id}_{gameweek}"),
          InlineKeyboardButton("📊 عرض مفصل", callback_data=f"detail_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}"),
-         InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
+         InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}"),
+         InlineKeyboardButton("⏰ المواعيد", callback_data=f"deadline_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
@@ -771,6 +829,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✓ ترتيب المدرب في كل دوري\n"
             "✓ تاريخ المواسم السابقة\n"
             "✓ نتائج المباريات وتفاصيلها ⚽\n"
+            "✓ مواعيد الجولة (الديدلاين) 🕐\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
             "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
@@ -852,6 +911,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 view_type = "leagues"
             elif "المباريات" in current_text or "نتائج" in current_text:
                 view_type = "fixtures"
+            elif "المواعيد" in current_text:
+                view_type = "deadline"
             else:
                 view_type = "simple"
             
@@ -868,16 +929,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            picks_data = get_manager_picks(manager_id, gameweek)
-            history = get_manager_history(manager_id)
-            
-            text_map = {
-                "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
-            }
-            text = text_map.get(view_type, "")
+            if view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+            else:
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text_map = {
+                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+                }
+                text = text_map.get(view_type, "")
             
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
@@ -885,12 +948,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        elif parts[0] in ["simple", "detail", "leagues", "fixtures"]:
+        elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
             view_type = parts[0]
             gameweek = int(parts[2])
             
-            loading_texts = {"simple": "العرض البسيط", "detail": "العرض المفصل",
-                            "leagues": "الدوريات والمواسم", "fixtures": "المباريات"}
+            loading_texts = {
+                "simple": "العرض البسيط",
+                "detail": "العرض المفصل",
+                "leagues": "الدوريات والمواسم",
+                "fixtures": "المباريات",
+                "deadline": "مواعيد الجولة"
+            }
             
             await context.bot.edit_message_text(
                 text=f"🔄 جاري تحميل {loading_texts[view_type]} للجولة {gameweek}...",
@@ -905,16 +973,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            picks_data = get_manager_picks(manager_id, gameweek)
-            history = get_manager_history(manager_id)
-            
-            text_map = {
-                "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
-            }
-            text = text_map.get(view_type, "")
+            if view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+            else:
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text_map = {
+                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+                }
+                text = text_map.get(view_type, "")
             
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
@@ -947,15 +1017,15 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     print("=" * 50)
-    print("🤖 البوت يعمل الآن (الإصدار النهائي)")
+    print("🤖 البوت يعمل الآن (الإصدار مع زر المواعيد)")
     print(f"📅 آخر جولة لعبت: {current_gameweek}")
-    print("✅ المميزات الجديدة:")
+    print("✅ المميزات:")
     print("   • عرض بسيط ومفصل للمدربين")
     print("   • دعم البنش بوست والتربل كابتن")
     print("   • حالة البطاقات مع تقسيم الموسم لنصفين")
     print("   • عرض المباريات بنتائج وتفاصيل")
-    print("   • توقيت مكة المكرمة")
-    print("   • إيموجيز مخصصة للفرق")
+    print("   • مواعيد الجولة (الديدلاين) ⏰")
+    print("   • توقيت مكة المكرمة حصراً")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
     
