@@ -21,7 +21,9 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     print("❌ خطأ: لم يتم العثور على BOT_TOKEN في متغيرات البيئة!")
     exit(1)
-
+# للتصحيح فقط - احذفه بعد التأكد
+print("BOT_TOKEN exists:", "BOT_TOKEN" in os.environ)
+# لا تطبع التوكن نفسه في السجلات للأمان
 BASE_URL = "https://fantasy.premierleague.com/api"
 
 # ============================================================
