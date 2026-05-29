@@ -214,14 +214,16 @@ def get_teams_dict():
     team_emojis = {
         "Arsenal": "🔫", "Aston Villa": "🏰", "Bournemouth": "🍒", "Brentford": "🐝",
         "Brighton and Hove Albion": "🐦", "Brighton": "🐦", "Chelsea": "🦁", "Crystal Palace": "🦅",
-        "Everton": "🍬", "Fulham": "🏁", "Ipswich Town": "🚜", "Leicester City": "🦊",
+        "Everton": "🍬", "Fulham": "🏁", "Leicester City": "🦊",
         "Liverpool": "🐦‍🔥", "Manchester City": "💎", "Manchester United": "🔱", "Newcastle United": "🐦‍⬛",
-        "Nottingham Forest": "🎋", "Southampton": "⚪", "Tottenham Hotspur": "🐔", "West Ham United": "⚒️",
-        "Wolverhampton Wanderers": "🐱", "Leeds United": "🦚", "Burnley": "🧱", "Sunderland": "🐈",
+        "Nottingham Forest": "🎋", "Southampton": "⚪", "Tottenham Hotspur": "🐔",
+        "Coventry City": "🐘", "Ipswich Town": "🎠", "Hull City": "🐯",
+        "Leeds United": "🦚", "Sunderland": "🐈",
         "ARS": "🔫", "AVL": "🏰", "BOU": "🍒", "BRE": "🐝", "BHA": "🐦", "CHE": "🦁",
-        "CRY": "🦅", "EVE": "🍬", "FUL": "🏁", "IPS": "🚜", "LEI": "🦊", "LIV": "🐦‍🔥",
+        "CRY": "🦅", "EVE": "🍬", "FUL": "🏁", "LEI": "🦊", "LIV": "🐦‍🔥",
         "MCI": "💎", "MUN": "🔱", "NEW": "🐦‍⬛", "NFO": "🎋", "SOU": "⚪", "TOT": "🐔",
-        "WHU": "⚒️", "WOL": "🐱", "LEE": "🦚", "BUR": "🧱", "SUN": "🐈"
+        "COV": "🐘", "IPS": "🎠", "HUL": "🐯",
+        "LEE": "🦚", "SUN": "🐈"
     }
     
     teams = {}
