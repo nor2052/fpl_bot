@@ -873,7 +873,7 @@ def format_players_display(manager_id, info, gameweek, picks_data, page=0):
 # دوال الأزرار ومعالجات البوت
 # ============================================================
 
-ddef get_buttons(manager_id, gameweek, current_view, page=0):
+def get_buttons(manager_id, gameweek, current_view, page=0):
     next_gw = get_next_gameweek(gameweek)
     prev_gw = get_previous_gameweek(gameweek)
     
@@ -1248,4 +1248,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
