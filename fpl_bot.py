@@ -796,23 +796,140 @@ def format_deadline_display(manager_id, info, gameweek):
     )
     return response
 
+def format_players_display(manager_id, info, gameweek, picks_data, page=0):
+    """
+    عرض قائمة اللاعبين مع تقسيم إلى صفحات (20 لاعب لكل صفحة)
+    """
+    name = sanitize_markdown(safe_str(info.get("name")))
+    total_points = safe_int(info.get("summary_overall_points"))
+    
+    # جلب بيانات اللاعبين
+    players_list = []
+    if picks_data and "picks" in picks_data:
+        for pick in picks_data["picks"]:
+            player_id = pick.get("element")
+            player_name = sanitize_markdown(players_dict.get(player_id, f"لاعب {player_id}"))
+            multiplier = pick.get("multiplier", 1)
+            is_captain = pick.get("is_captain", False)
+            is_vice = pick.get("is_vice_captain", False)
+            
+            # جلب نقاط اللاعب
+            live_points_map = get_live_points(gameweek)
+            points = live_points_map.get(player_id, 0)
+            
+            players_list.append({
+                "id": player_id,
+                "name": player_name,
+                "points": points,
+                "multiplier": multiplier,
+                "is_captain": is_captain,
+                "is_vice": is_vice
+            })
+    
+    # حساب عدد الصفحات
+    players_per_page = 20
+    total_pages = (len(players_list) + players_per_page - 1) // players_per_page
+    if total_pages == 0:
+        total_pages = 1
+    
+    # التأكد من أن الصفحة الحالية ضمن النطاق
+    if page >= total_pages:
+        page = total_pages - 1
+    if page < 0:
+        page = 0
+    
+    # جلب اللاعبين للصفحة الحالية
+    start_idx = page * players_per_page
+    end_idx = min(start_idx + players_per_page, len(players_list))
+    current_players = players_list[start_idx:end_idx]
+    
+    # بناء الرد
+    response = (
+        f"👥 **قائمة اللاعبين**\n"
+        f"🎮 {name}\n"
+        f"📊 **الجولة {gameweek}**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📈 إجمالي اللاعبين: *{len(players_list)}*\n"
+        f"📄 الصفحة *{page + 1}* من *{total_pages}*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+    
+    if not current_players:
+        response += "🚫 لا يوجد لاعبين في هذه الصفحة\n"
+    else:
+        for idx, player in enumerate(current_players, start=start_idx + 1):
+            cap_tag = "👑 " if player["is_captain"] else ""
+            vc_tag = "🔹 " if player["is_vice"] and not player["is_captain"] else ""
+            mult_tag = f" (×{player['multiplier']})" if player["multiplier"] > 1 else ""
+            
+            response += f"{idx}. {cap_tag}{vc_tag}{player['name']}: **{player['points']}** نقاط{mult_tag}\n"
+    
+    response += f"\n━━━━━━━━━━━━━━━━━━━━━\n"
+    response += f"🔄 استخدم الأزرار للتنقل بين الصفحات"
+    
+    return response, page, total_pages
+
 # ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
 
-def get_buttons(manager_id, gameweek, current_view):
+ddef get_buttons(manager_id, gameweek, current_view, page=0):
     next_gw = get_next_gameweek(gameweek)
     prev_gw = get_previous_gameweek(gameweek)
     
+    # الأزرار الأساسية
     keyboard = [
         [InlineKeyboardButton("📋 عرض بسيط", callback_data=f"simple_{manager_id}_{gameweek}"),
          InlineKeyboardButton("📊 عرض مفصل", callback_data=f"detail_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}"),
          InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
-        [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}")],
+        [InlineKeyboardButton("👥 اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0"),
+         InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
+    
+    # إذا كنا في صفحة اللاعبين، نضيف أزرار التنقل بين الصفحات
+    if current_view == "players":
+        players_per_page = 20
+        # نحتاج لحساب إجمالي الصفحات هنا (سيتم إرساله مع الـ callback)
+        # نضيف أزرار التنقل بين الصفحات
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"players_page_{manager_id}_{gameweek}_{page-1}"))
+        if True:  # سنضيف زر الصفحة التالية ديناميكياً في المعالج
+            nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"players_page_{manager_id}_{gameweek}_{page+1}"))
+        
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+        
+        # إضافة زر الرجوع للصفحة الرئيسية
+        keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data=f"back_{manager_id}_{gameweek}")])
+    
+    return InlineKeyboardMarkup(keyboard)
+
+def get_players_navigation_buttons(manager_id, gameweek, current_page, total_pages):
+    """
+    إنشاء أزرار التنقل بين صفحات اللاعبين مع زر الرجوع
+    """
+    keyboard = []
+    
+    # أزرار التنقل بين الصفحات
+    nav_buttons = []
+    if current_page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"players_page_{manager_id}_{gameweek}_{current_page-1}"))
+    if current_page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ التالي", callback_data=f"players_page_{manager_id}_{gameweek}_{current_page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # معلومات الصفحة
+    keyboard.append([InlineKeyboardButton(f"📄 صفحة {current_page + 1}/{total_pages}", callback_data="noop")])
+    
+    # زر الرجوع للقائمة الرئيسية
+    keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data=f"back_{manager_id}_{gameweek}")])
+    
     return InlineKeyboardMarkup(keyboard)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -905,7 +1022,90 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     try:
-        if parts[0] == "nav":
+        # ====== حالة جديدة: عرض اللاعبين ======
+        if parts[0] == "players":
+            view_type = "players"
+            gameweek = int(parts[2])
+            page = int(parts[3]) if len(parts) > 3 else 0
+            
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري تحميل قائمة اللاعبين للجولة {gameweek}...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            picks_data = get_manager_picks(manager_id, gameweek)
+            text, current_page, total_pages = format_players_display(manager_id, info, gameweek, picks_data, page)
+            
+            # تحديث الأزرار مع إضافة أزرار التنقل بين الصفحات
+            reply_markup = get_players_navigation_buttons(manager_id, gameweek, current_page, total_pages)
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+        
+        # ====== حالة جديدة: التنقل بين صفحات اللاعبين ======
+        elif parts[0] == "players_page":
+            gameweek = int(parts[2])
+            page = int(parts[3])
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            picks_data = get_manager_picks(manager_id, gameweek)
+            text, current_page, total_pages = format_players_display(manager_id, info, gameweek, picks_data, page)
+            
+            reply_markup = get_players_navigation_buttons(manager_id, gameweek, current_page, total_pages)
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+        
+        # ====== حالة جديدة: الرجوع للقائمة الرئيسية ======
+        elif parts[0] == "back":
+            gameweek = int(parts[2])
+            
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري العودة للقائمة الرئيسية...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            picks_data = get_manager_picks(manager_id, gameweek)
+            history = get_manager_history(manager_id)
+            text = format_simple_display(manager_id, info, gameweek, picks_data, history)
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, "simple")
+            )
+            return
+        
+        # ====== الكود الأصلي للتنقل بين الجولات ======
+        elif parts[0] == "nav":
             gameweek = int(parts[2])
             current_text = query.message.text
             
@@ -917,6 +1117,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 view_type = "fixtures"
             elif "المواعيد" in current_text:
                 view_type = "deadline"
+            elif "قائمة اللاعبين" in current_text:
+                view_type = "players"
             else:
                 view_type = "simple"
             
@@ -935,6 +1137,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if view_type == "deadline":
                 text = format_deadline_display(manager_id, info, gameweek)
+            elif view_type == "players":
+                picks_data = get_manager_picks(manager_id, gameweek)
+                text, page, total_pages = format_players_display(manager_id, info, gameweek, picks_data, 0)
+                reply_markup = get_players_navigation_buttons(manager_id, gameweek, 0, total_pages)
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup
+                )
+                return
             else:
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
@@ -952,6 +1163,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
+        # ====== الكود الأصلي للأزرار الأساسية ======
         elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
             view_type = parts[0]
             gameweek = int(parts[2])
@@ -1036,3 +1248,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
