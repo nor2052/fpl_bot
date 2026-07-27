@@ -850,7 +850,7 @@ def format_players_display(manager_id, info, gameweek, page=0):
     كل صفحة تعرض 20 لاعب
     """
     name = sanitize_markdown(safe_str(info.get("name")))
-    players_per_page = 20
+    players_per_page = 5
     
     # جلب جميع اللاعبين
     all_players = get_all_players_data()
@@ -1162,6 +1162,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
