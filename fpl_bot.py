@@ -1064,9 +1064,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     try:
-        # معالجة زر اللاعبين (جديد)
+        # ============================================================
+        # معالجة زر اللاعبين
+        # ============================================================
         if parts[0] == "players":
-            view_type = "players"
             gameweek = int(parts[2])
             page = int(parts[3]) if len(parts) > 3 else 0
             
@@ -1096,15 +1097,102 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # معالجة التنقل بين الجولات (كما هو)
+        # ============================================================
+        # معالجة التنقل بين الجولات
+        # ============================================================
         elif parts[0] == "nav":
-            # ... الكود الحالي كما هو ...
-            pass
+            gameweek = int(parts[2])
+            current_text = query.message.text
+            
+            if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
+                view_type = "detail"
+            elif "الدوريات" in current_text:
+                view_type = "leagues"
+            elif "المباريات" in current_text or "نتائج" in current_text:
+                view_type = "fixtures"
+            elif "المواعيد" in current_text:
+                view_type = "deadline"
+            else:
+                view_type = "simple"
+            
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            if view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+            else:
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text_map = {
+                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+                }
+                text = text_map.get(view_type, "")
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
+            )
+            return
         
+        # ============================================================
         # معالجة الأزرار الأخرى (simple, detail, leagues, fixtures, deadline)
+        # ============================================================
         elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
-            # ... الكود الحالي كما هو ...
-            pass
+            view_type = parts[0]
+            gameweek = int(parts[2])
+            
+            loading_texts = {
+                "simple": "العرض البسيط",
+                "detail": "العرض المفصل",
+                "leagues": "الدوريات والمواسم",
+                "fixtures": "المباريات",
+                "deadline": "مواعيد الجولة"
+            }
+            
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري تحميل {loading_texts[view_type]} للجولة {gameweek}...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            if view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+            else:
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text_map = {
+                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+                }
+                text = text_map.get(view_type, "")
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
+            )
+            return
         
     except Exception as e:
         logger.error(f"خطأ في معالجة callback: {e}")
@@ -1114,8 +1202,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
             )
         except Exception as edit_error:
-            logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
-            
+            logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")            
 # ============================================================
 # تشغيل البوت
 # ============================================================
@@ -1198,6 +1285,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
