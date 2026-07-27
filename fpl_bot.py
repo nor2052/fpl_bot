@@ -924,14 +924,14 @@ def get_players_navigation_buttons(manager_id, gameweek, current_page, total_pag
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # معلومات الصفحة
-    keyboard.append([InlineKeyboardButton(f"📄 صفحة {current_page + 1}/{total_pages}", callback_data="noop")])
+    # معلومات الصفحة (زر غير قابل للضغط)
+    keyboard.append([InlineKeyboardButton(f"📄 صفحة {current_page + 1} من {total_pages}", callback_data="noop")])
     
     # زر الرجوع للقائمة الرئيسية
     keyboard.append([InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data=f"back_{manager_id}_{gameweek}")])
     
     return InlineKeyboardMarkup(keyboard)
-
+    
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
     
@@ -1248,5 +1248,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
