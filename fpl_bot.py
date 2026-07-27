@@ -26,6 +26,16 @@ print("BOT_TOKEN exists:", "BOT_TOKEN" in os.environ)
 # لا تطبع التوكن نفسه في السجلات للأمان
 BASE_URL = "https://fantasy.premierleague.com/api"
 
+POSITION_OVERRIDES_26_27 = {
+    # id: (المركز الجديد, الاسم الكامل)
+    # 1=حارس, 2=مدافع, 3=وسط, 4=مهاجم
+    # هذه أمثلة - يجب تحديثها بالأرقام الصحيحة من الموسم الجديد
+    
+    # مثال: 12345: (4, "Omar Marmoush"),  # من وسط إلى مهاجم
+    # مثال: 67890: (3, "Patrick Dorgu"),   # من مدافع إلى وسط
+    # أضف باقي اللاعبين هنا عند معرفة أرقامهم
+}
+
 # ============================================================
 # دوال مساعدة عامة
 # ============================================================
@@ -850,7 +860,7 @@ def format_players_display(manager_id, info, gameweek, page=0):
     كل صفحة تعرض 20 لاعب
     """
     name = sanitize_markdown(safe_str(info.get("name")))
-    players_per_page = 5
+    players_per_page = 20
     
     # جلب جميع اللاعبين
     all_players = get_all_players_data()
@@ -884,6 +894,9 @@ def format_players_display(manager_id, info, gameweek, page=0):
     
     # عرض اللاعبين في جدول مرتب
     for idx, player in enumerate(page_players, start=start_idx + 1):
+        # تنظيف اسم اللاعب
+        player_name = sanitize_markdown(player['name'])
+        
         # تنسيق المركز
         pos_id = player["position"]
         pos_name = POSITION_NAMES.get(pos_id, "❓ غير معروف")
@@ -907,9 +920,9 @@ def format_players_display(manager_id, info, gameweek, page=0):
         form = player.get("form", 0)
         form_str = f"{form:.1f}" if form > 0 else "-"
         
-        # تنسيق الصف
+        # تنسيق الصف - استخدم أسماء منظمة
         response += (
-            f"{idx:3d}. **{player['name']}**\n"
+            f"{idx:3d}. **{player_name}**\n"
             f"   {pos_name} | {team_short} | السعر: {price_str} | النقاط: {points} | الفورم: {form_str} | الاختيار: {selected_str}\n\n"
         )
     
@@ -919,6 +932,7 @@ def format_players_display(manager_id, info, gameweek, page=0):
     response += "🔄 استخدم الأزرار أدناه للتنقل بين الصفحات"
     
     return response
+    
 # ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
@@ -1162,6 +1176,7 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
 
 
