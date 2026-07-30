@@ -1091,6 +1091,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
     
+    # ============================================
+    # مهم: التحقق من نوع البيانات قبل أي شيء آخر
+    # ============================================
+    
+    # 1. التحقق من الاشتراك
     if parts[0] == "check":
         logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
         
@@ -1163,12 +1168,145 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
     
+    # ============================================
+    # 2. معالجة أزرار اللاعبين (الأولوية القصوى)
+    # ============================================
+    
+    # معالجة ترتيب اللاعبين
+    if parts[0] == "players_sort":
+        # تنسيق: players_sort_{manager_id}_{gameweek}_{sort_by}_{page}
+        try:
+            manager_id = int(parts[1])
+            gameweek = int(parts[2])
+            sort_by = parts[3]
+            page = int(parts[4]) if len(parts) > 4 else 0
+        except (ValueError, IndexError) as e:
+            logger.error(f"خطأ في parsing players_sort: {e}")
+            await context.bot.edit_message_text(
+                text="❌ حدث خطأ في البيانات. يرجى المحاولة مرة أخرى.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        await context.bot.edit_message_text(
+            text=f"🔄 جاري ترتيب اللاعبين حسب { 'النقاط' if sort_by == 'points' else 'السعر' }...",
+            chat_id=chat_id, message_id=message_id, reply_markup=None
+        )
+        
+        info = get_manager_info(manager_id)
+        if not info:
+            await context.bot.edit_message_text(
+                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        all_players = get_all_players_data()
+        total_pages = (len(all_players) + 19) // 20
+        
+        text = format_players_display(manager_id, info, gameweek, page, sort_by)
+        reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
+        
+        await context.bot.edit_message_text(
+            text=text, chat_id=chat_id, message_id=message_id,
+            parse_mode='Markdown', reply_markup=reply_markup
+        )
+        return
+    
+    # معالجة التنقل بين صفحات اللاعبين
+    if parts[0] == "players_nav":
+        # تنسيق: players_nav_{manager_id}_{gameweek}_{page}_{sort_by}
+        try:
+            manager_id = int(parts[1])
+            gameweek = int(parts[2])
+            page = int(parts[3])
+            sort_by = parts[4] if len(parts) > 4 else "points"
+        except (ValueError, IndexError) as e:
+            logger.error(f"خطأ في parsing players_nav: {e}")
+            await context.bot.edit_message_text(
+                text="❌ حدث خطأ في البيانات. يرجى المحاولة مرة أخرى.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        await context.bot.edit_message_text(
+            text=f"🔄 جاري تحميل الصفحة {page + 1}...",
+            chat_id=chat_id, message_id=message_id, reply_markup=None
+        )
+        
+        info = get_manager_info(manager_id)
+        if not info:
+            await context.bot.edit_message_text(
+                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        all_players = get_all_players_data()
+        total_pages = (len(all_players) + 19) // 20
+        
+        text = format_players_display(manager_id, info, gameweek, page, sort_by)
+        reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
+        
+        await context.bot.edit_message_text(
+            text=text, chat_id=chat_id, message_id=message_id,
+            parse_mode='Markdown', reply_markup=reply_markup
+        )
+        return
+    
+    # معالجة عرض اللاعبين (الصفحة الأولى)
+    if parts[0] == "players":
+        # تنسيق: players_{manager_id}_{gameweek}_{page}
+        try:
+            manager_id = int(parts[1])
+            gameweek = int(parts[2])
+            page = int(parts[3]) if len(parts) > 3 else 0
+        except (ValueError, IndexError) as e:
+            logger.error(f"خطأ في parsing players: {e}")
+            await context.bot.edit_message_text(
+                text="❌ حدث خطأ في البيانات. يرجى المحاولة مرة أخرى.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        sort_by = "points"  # الافتراضي
+        
+        await context.bot.edit_message_text(
+            text=f"🔄 جاري تحميل قائمة اللاعبين - الصفحة {page + 1}...",
+            chat_id=chat_id, message_id=message_id, reply_markup=None
+        )
+        
+        info = get_manager_info(manager_id)
+        if not info:
+            await context.bot.edit_message_text(
+                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        all_players = get_all_players_data()
+        total_pages = (len(all_players) + 19) // 20
+        
+        text = format_players_display(manager_id, info, gameweek, page, sort_by)
+        reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
+        
+        await context.bot.edit_message_text(
+            text=text, chat_id=chat_id, message_id=message_id,
+            parse_mode='Markdown', reply_markup=reply_markup
+        )
+        return
+    
+    # ============================================
+    # 3. باقي الأزرار (التنقل بين الجولات، العروض المختلفة)
+    # ============================================
+    
+    # استخراج manager_id من context أو من البيانات
     manager_id = context.user_data.get('current_manager_id')
     if not manager_id:
         try:
             if len(parts) >= 2:
-                manager_id = parts[1]
-        except:
+                manager_id = int(parts[1])
+        except (ValueError, IndexError):
             pass
     
     if not manager_id:
@@ -1178,205 +1316,121 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    try:
-        # ===== قسم معالجة اللاعبين =====
-        if parts[0] == "players":
-            # تنسيق: players_{manager_id}_{gameweek}_{page}
-            gameweek = int(parts[2])
-            page = int(parts[3]) if len(parts) > 3 else 0
-            sort_by = "points"  # الافتراضي
-            
-            await context.bot.edit_message_text(
-                text=f"🔄 جاري تحميل قائمة اللاعبين - الصفحة {page + 1}...",
-                chat_id=chat_id, message_id=message_id, reply_markup=None
-            )
-            
-            info = get_manager_info(manager_id)
-            if not info:
-                await context.bot.edit_message_text(
-                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-                )
-                return
-            
-            all_players = get_all_players_data()
-            total_pages = (len(all_players) + 19) // 20
-            
-            text = format_players_display(manager_id, info, gameweek, page, sort_by)
-            reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
-            
-            await context.bot.edit_message_text(
-                text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=reply_markup
-            )
-            return
-        
-        # ===== قسم ترتيب اللاعبين =====
-        elif parts[0] == "players_sort":
-            # تنسيق: players_sort_{manager_id}_{gameweek}_{sort_by}_{page}
-            gameweek = int(parts[2])
-            sort_by = parts[3]
-            page = int(parts[4]) if len(parts) > 4 else 0
-            
-            await context.bot.edit_message_text(
-                text=f"🔄 جاري ترتيب اللاعبين حسب { 'النقاط' if sort_by == 'points' else 'السعر' }...",
-                chat_id=chat_id, message_id=message_id, reply_markup=None
-            )
-            
-            info = get_manager_info(manager_id)
-            if not info:
-                await context.bot.edit_message_text(
-                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-                )
-                return
-            
-            all_players = get_all_players_data()
-            total_pages = (len(all_players) + 19) // 20
-            
-            text = format_players_display(manager_id, info, gameweek, page, sort_by)
-            reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
-            
-            await context.bot.edit_message_text(
-                text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=reply_markup
-            )
-            return
-        
-        # ===== قسم التنقل بين صفحات اللاعبين =====
-        elif parts[0] == "players_nav":
-            # تنسيق: players_nav_{manager_id}_{gameweek}_{page}_{sort_by}
-            gameweek = int(parts[2])
-            page = int(parts[3])
-            sort_by = parts[4] if len(parts) > 4 else "points"
-            
-            await context.bot.edit_message_text(
-                text=f"🔄 جاري تحميل الصفحة {page + 1}...",
-                chat_id=chat_id, message_id=message_id, reply_markup=None
-            )
-            
-            info = get_manager_info(manager_id)
-            if not info:
-                await context.bot.edit_message_text(
-                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-                )
-                return
-            
-            all_players = get_all_players_data()
-            total_pages = (len(all_players) + 19) // 20
-            
-            text = format_players_display(manager_id, info, gameweek, page, sort_by)
-            reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
-            
-            await context.bot.edit_message_text(
-                text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=reply_markup
-            )
-            return
-        
-        # ===== باقي الأقسام (تظل كما هي) =====
-        elif parts[0] == "nav":
-            gameweek = int(parts[2])
-            current_text = query.message.text
-            
-            if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
-                view_type = "detail"
-            elif "الدوريات" in current_text:
-                view_type = "leagues"
-            elif "المباريات" in current_text or "نتائج" in current_text:
-                view_type = "fixtures"
-            elif "المواعيد" in current_text:
-                view_type = "deadline"
-            else:
-                view_type = "simple"
-            
-            await context.bot.edit_message_text(
-                text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
-                chat_id=chat_id, message_id=message_id, reply_markup=None
-            )
-            
-            info = get_manager_info(manager_id)
-            if not info:
-                await context.bot.edit_message_text(
-                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-                )
-                return
-            
-            if view_type == "deadline":
-                text = format_deadline_display(manager_id, info, gameweek)
-            else:
-                picks_data = get_manager_picks(manager_id, gameweek)
-                history = get_manager_history(manager_id)
-                text_map = {
-                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
-                }
-                text = text_map.get(view_type, "")
-            
-            await context.bot.edit_message_text(
-                text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
-            )
-            return
-        
-        elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
-            view_type = parts[0]
-            gameweek = int(parts[2])
-            
-            loading_texts = {
-                "simple": "العرض البسيط",
-                "detail": "العرض المفصل",
-                "leagues": "الدوريات والمواسم",
-                "fixtures": "المباريات",
-                "deadline": "مواعيد الجولة"
-            }
-            
-            await context.bot.edit_message_text(
-                text=f"🔄 جاري تحميل {loading_texts[view_type]} للجولة {gameweek}...",
-                chat_id=chat_id, message_id=message_id, reply_markup=None
-            )
-            
-            info = get_manager_info(manager_id)
-            if not info:
-                await context.bot.edit_message_text(
-                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-                )
-                return
-            
-            if view_type == "deadline":
-                text = format_deadline_display(manager_id, info, gameweek)
-            else:
-                picks_data = get_manager_picks(manager_id, gameweek)
-                history = get_manager_history(manager_id)
-                text_map = {
-                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
-                }
-                text = text_map.get(view_type, "")
-            
-            await context.bot.edit_message_text(
-                text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
-            )
-            return
-        
-    except Exception as e:
-        logger.error(f"خطأ في معالجة callback: {e}")
+    # التنقل بين الجولات
+    if parts[0] == "nav":
         try:
+            gameweek = int(parts[2])
+        except (ValueError, IndexError):
             await context.bot.edit_message_text(
-                text=f"❌ حدث خطأ أثناء تحميل البيانات: {str(e)[:100]}\n\nيرجى المحاولة مرة أخرى بإرسال معرف المدرب.",
+                text="❌ حدث خطأ في رقم الجولة.",
                 chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
             )
-        except Exception as edit_error:
-            logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
-            
+            return
+        
+        current_text = query.message.text
+        
+        if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
+            view_type = "detail"
+        elif "الدوريات" in current_text:
+            view_type = "leagues"
+        elif "المباريات" in current_text or "نتائج" in current_text:
+            view_type = "fixtures"
+        elif "المواعيد" in current_text:
+            view_type = "deadline"
+        else:
+            view_type = "simple"
+        
+        await context.bot.edit_message_text(
+            text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
+            chat_id=chat_id, message_id=message_id, reply_markup=None
+        )
+        
+        info = get_manager_info(manager_id)
+        if not info:
+            await context.bot.edit_message_text(
+                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        if view_type == "deadline":
+            text = format_deadline_display(manager_id, info, gameweek)
+        else:
+            picks_data = get_manager_picks(manager_id, gameweek)
+            history = get_manager_history(manager_id)
+            text_map = {
+                "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+            }
+            text = text_map.get(view_type, "")
+        
+        await context.bot.edit_message_text(
+            text=text, chat_id=chat_id, message_id=message_id,
+            parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
+        )
+        return
+    
+    # العروض المختلفة (simple, detail, leagues, fixtures, deadline)
+    if parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
+        try:
+            view_type = parts[0]
+            gameweek = int(parts[2])
+        except (ValueError, IndexError):
+            await context.bot.edit_message_text(
+                text="❌ حدث خطأ في البيانات.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        loading_texts = {
+            "simple": "العرض البسيط",
+            "detail": "العرض المفصل",
+            "leagues": "الدوريات والمواسم",
+            "fixtures": "المباريات",
+            "deadline": "مواعيد الجولة"
+        }
+        
+        await context.bot.edit_message_text(
+            text=f"🔄 جاري تحميل {loading_texts[view_type]} للجولة {gameweek}...",
+            chat_id=chat_id, message_id=message_id, reply_markup=None
+        )
+        
+        info = get_manager_info(manager_id)
+        if not info:
+            await context.bot.edit_message_text(
+                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+            return
+        
+        if view_type == "deadline":
+            text = format_deadline_display(manager_id, info, gameweek)
+        else:
+            picks_data = get_manager_picks(manager_id, gameweek)
+            history = get_manager_history(manager_id)
+            text_map = {
+                "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+            }
+            text = text_map.get(view_type, "")
+        
+        await context.bot.edit_message_text(
+            text=text, chat_id=chat_id, message_id=message_id,
+            parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
+        )
+        return
+    
+    # إذا وصلنا هنا، فهذا يعني أن البيانات غير معروفة
+    logger.warning(f"⚠️ بيانات غير معروفة: {data}")
+    await context.bot.edit_message_text(
+        text="❌ حدث خطأ: أمر غير معروف. يرجى المحاولة مرة أخرى.",
+        chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+    )
+    
 # ============================================================
 # تشغيل البوت
 # ============================================================
