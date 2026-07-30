@@ -27,7 +27,7 @@ print("BOT_TOKEN exists:", "BOT_TOKEN" in os.environ)
 BASE_URL = "https://fantasy.premierleague.com/api"
 CHANNELS = [
     {"id": "@Fantasypremierlea", "name": "القناة الأولى"},
-    {"id": "@YourSecondChannel", "name": "القناة الثانية"},  # غيّر إلى قناتك الثانية
+    {"id": "@nst3li8", "name": "القناة الثانية"},  # غيّر إلى قناتك الثانية
 ]
 
 POSITION_OVERRIDES_26_27 = {
