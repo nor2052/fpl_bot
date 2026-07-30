@@ -1240,6 +1240,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
     
+    # ========== ✅ تعريف manager_id هنا ==========
+    # محاولة استخراج manager_id من الـ context أولاً
+    manager_id = context.user_data.get('current_manager_id')
+    
+    # إذا لم يكن موجوداً في الـ context، نحاول استخراجه من الأجزاء
+    if not manager_id:
+        try:
+            # الأجزاء عادة تكون: [type, manager_id, ...]
+            if len(parts) >= 2:
+                manager_id = parts[1]
+        except:
+            pass
+    
+    # إذا لم نجد manager_id، نطلب من المستخدم إرساله مرة أخرى
+    if not manager_id:
+        await context.bot.edit_message_text(
+            text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى باستخدام /start",
+            chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+        )
+        return
+    # =============================================
+    
     # ============================================================
     # معالجة زر "تم الاشتراك - تحقق مرة أخرى"
     # ============================================================
@@ -1509,6 +1531,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="❌ حدث خطأ: أمر غير معروف. يرجى المحاولة مرة أخرى.",
         chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
     )
+
 
 # ============================================================
 # تشغيل البوت
