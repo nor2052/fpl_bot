@@ -1046,20 +1046,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not is_subscribed:
             # المستخدم غير مشترك - عرض رسالة الاشتراك الإجباري مع زر
             # بناء قائمة القنوات المطلوبة
-channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
-
-    await update.message.reply_text(
-        f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
-        f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قنواتنا:\n"
-        f"{channels_list}\n\n"
-        f"✅ **خطوات الاشتراك:**\n"
-        f"1️⃣ اضغط على أزرار 'اشترك في القناة' أدناه لكل قناة\n"
-        f"2️⃣ انضم إلى جميع القنوات\n"
-        f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'\n\n"
-        f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في جميع القنوات.",
-        parse_mode='Markdown',
-        reply_markup=get_subscription_button()
-    )    
+            channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+            
+            await update.message.reply_text(
+                f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+                f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قنواتنا:\n"
+                f"{channels_list}\n\n"
+                f"✅ **خطوات الاشتراك:**\n"
+                f"1️⃣ اضغط على أزرار 'اشترك في القناة' أدناه لكل قناة\n"
+                f"2️⃣ انضم إلى جميع القنوات\n"
+                f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'\n\n"
+                f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في جميع القنوات.",
+                parse_mode='Markdown',
+                reply_markup=get_subscription_button()
+            )
             return
         
         # المستخدم مشترك - عرض رسالة الترحيب
@@ -1077,7 +1077,7 @@ channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
             "✓ ترتيب المدرب في كل دوري\n"
             "✓ تاريخ المواسم السابقة\n"
             "✓ نتائج المباريات وتفاصيلها ⚽\n"
-            "✓ مواعبد الديدلاين وانتهاء وقت الانتقالات \n"
+            "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات \n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
             "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
@@ -1092,10 +1092,13 @@ channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
     is_subscribed = await check_subscription(context, user_id)
     
     if not is_subscribed:
+        # بناء قائمة القنوات المطلوبة
+        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+        
         await update.message.reply_text(
-            f"🔒 **يرجى الاشتراك في القناة أولاً!**\n\n"
-            f"📢 {CHANNEL_ID}\n\n"
-            f"✅ بعد الاشتراك، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+            f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+            f"{channels_list}\n\n"
+            f"✅ بعد الاشتراك في الكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
             parse_mode='Markdown',
             reply_markup=get_subscription_button()
         )
@@ -1138,7 +1141,7 @@ channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
     reply_markup = get_buttons(manager_id, start_gameweek, "simple")
     
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
-    
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
