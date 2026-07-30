@@ -30,6 +30,14 @@ CHANNELS = [
     {"id": "@Fantasyargoal", "name": "القناة الثانية"},  # غيّر إلى قناتك الثانية
 ]
 
+# ========== إضافة التخزين المؤقت للاعبين ==========
+CACHE_DURATION = 300  # 5 دقائق بالثواني
+players_cache = {
+    "data": None,
+    "timestamp": None
+}
+# ================================================
+
 POSITION_OVERRIDES_26_27 = {
     # id: (المركز الجديد, الاسم الكامل)
     # 1=حارس, 2=مدافع, 3=وسط, 4=مهاجم
@@ -238,65 +246,92 @@ def get_players_dict():
     logger.info(f"👥 تم تحميل {len(players)} لاعب")
     return players
 
-def get_all_players_data(sort_by="points"):
+def get_all_players_data(sort_by="points", force_refresh=False):
     """
     جلب جميع اللاعبين مع مراكزهم وأسعارهم ونقاطهم
+    مع استخدام التخزين المؤقت لتقليل طلبات API
     sort_by: "points" | "price" | "ownership"
+    force_refresh: تجاهل الكاش وجلب بيانات جديدة
     """
-    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_all_players_data")
-    players_list = []
+    global players_cache
     
-    if data and "elements" in data:
-        for player in data["elements"]:
-            # تطبيق التعديلات اليدوية للمراكز من الموسم الجديد
-            player_id = player["id"]
-            if player_id in POSITION_OVERRIDES_26_27:
-                new_pos, _ = POSITION_OVERRIDES_26_27[player_id]
-                player["element_type"] = new_pos
-            
-            # تأكد من تحويل القيم إلى أرقام
-            try:
-                total_points = int(player.get("total_points", 0))
-            except (ValueError, TypeError):
-                total_points = 0
+    import time
+    
+    # التحقق من صلاحية الكاش
+    current_time = time.time()
+    cache_valid = (
+        players_cache["data"] is not None and 
+        players_cache["timestamp"] is not None and
+        (current_time - players_cache["timestamp"]) < CACHE_DURATION and
+        not force_refresh
+    )
+    
+    if cache_valid:
+        logger.info(f"✅ استخدام البيانات المخزنة مؤقتاً (منذ {int((current_time - players_cache['timestamp'])/60)} دقيقة)")
+        players_list = players_cache["data"]
+    else:
+        logger.info("🔄 جلب بيانات اللاعبين من API...")
+        data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_all_players_data")
+        players_list = []
+        
+        if data and "elements" in data:
+            for player in data["elements"]:
+                # تطبيق التعديلات اليدوية للمراكز من الموسم الجديد
+                player_id = player["id"]
+                if player_id in POSITION_OVERRIDES_26_27:
+                    new_pos, _ = POSITION_OVERRIDES_26_27[player_id]
+                    player["element_type"] = new_pos
                 
-            try:
-                price = float(player.get("now_cost", 0)) / 10
-            except (ValueError, TypeError):
-                price = 0.0
+                # تأكد من تحويل القيم إلى أرقام
+                try:
+                    total_points = int(player.get("total_points", 0))
+                except (ValueError, TypeError):
+                    total_points = 0
+                    
+                try:
+                    price = float(player.get("now_cost", 0)) / 10
+                except (ValueError, TypeError):
+                    price = 0.0
+                    
+                try:
+                    selected_by = float(player.get("selected_by_percent", 0))
+                except (ValueError, TypeError):
+                    selected_by = 0.0
+                    
+                try:
+                    form = float(player.get("form", 0))
+                except (ValueError, TypeError):
+                    form = 0.0
                 
-            try:
-                selected_by = float(player.get("selected_by_percent", 0))
-            except (ValueError, TypeError):
-                selected_by = 0.0
-                
-            try:
-                form = float(player.get("form", 0))
-            except (ValueError, TypeError):
-                form = 0.0
-            
-            players_list.append({
-                "id": player["id"],
-                "name": f"{player['first_name']} {player['second_name']}",
-                "position": player.get("element_type", 0),
-                "price": price,
-                "total_points": total_points,
-                "team": player.get("team", 0),
-                "selected_by": selected_by,
-                "form": form
-            })
+                players_list.append({
+                    "id": player["id"],
+                    "name": f"{player['first_name']} {player['second_name']}",
+                    "position": player.get("element_type", 0),
+                    "price": price,
+                    "total_points": total_points,
+                    "team": player.get("team", 0),
+                    "selected_by": selected_by,
+                    "form": form
+                })
+        
+        # تخزين البيانات في الكاش
+        players_cache["data"] = players_list
+        players_cache["timestamp"] = current_time
+        logger.info(f"👥 تم تحميل {len(players_list)} لاعب وتخزينهم في الكاش")
     
     # ترتيب اللاعبين حسب الخيار المحدد
-    if sort_by == "price":
-        players_list.sort(key=lambda x: x["price"], reverse=True)
-    elif sort_by == "ownership":
-        players_list.sort(key=lambda x: x["selected_by"], reverse=True)
-    else:  # points (الافتراضي)
-        players_list.sort(key=lambda x: x["total_points"], reverse=True)
+    # نعمل على نسخة من القائمة حتى لا نعدل الكاش الأصلي
+    sorted_list = players_list.copy()
     
-    logger.info(f"👥 تم تحميل {len(players_list)} لاعب مرتب حسب {sort_by}")
-    return players_list
-
+    if sort_by == "price":
+        sorted_list.sort(key=lambda x: x["price"], reverse=True)
+    elif sort_by == "ownership":
+        sorted_list.sort(key=lambda x: x["selected_by"], reverse=True)
+    else:  # points (الافتراضي)
+        sorted_list.sort(key=lambda x: x["total_points"], reverse=True)
+    
+    return sorted_list
+    
 def get_fixtures(gameweek=None):
     if gameweek:
         url = f"{BASE_URL}/fixtures/?event={gameweek}"
