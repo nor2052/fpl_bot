@@ -25,7 +25,10 @@ if not BOT_TOKEN:
 print("BOT_TOKEN exists:", "BOT_TOKEN" in os.environ)
 # لا تطبع التوكن نفسه في السجلات للأمان
 BASE_URL = "https://fantasy.premierleague.com/api"
-CHANNEL_ID = "@Fantasypremierlea" 
+CHANNELS = [
+    {"id": "@Fantasypremierlea", "name": "القناة الأولى"},
+    {"id": "@YourSecondChannel", "name": "القناة الثانية"},  # غيّر إلى قناتك الثانية
+]
 
 POSITION_OVERRIDES_26_27 = {
     # id: (المركز الجديد, الاسم الكامل)
@@ -57,20 +60,28 @@ def sanitize_markdown(text):
     return text
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
-    try:
-        # محاولة جلب معلومات عضو القناة
-        chat_member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-        
-        # الحالات التي تعني أن المستخدم مشترك
-        if chat_member.status in ["member", "administrator", "creator"]:
+    """
+    التحقق من اشتراك المستخدم في جميع القنوات المطلوبة
+    يعيد True إذا كان مشتركاً في الكل، False إذا لم يكن مشتركاً في واحدة على الأقل
+    """
+    for channel in CHANNELS:
+        channel_id = channel["id"]
+        try:
+            # محاولة جلب معلومات عضو القناة
+            chat_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+            
+            # الحالات التي تعني أن المستخدم مشترك
+            if chat_member.status not in ["member", "administrator", "creator"]:
+                # غير مشترك في هذه القناة
+                logger.info(f"المستخدم {user_id} غير مشترك في القناة {channel_id}")
+                return False
+        except Exception as e:
+            logger.error(f"خطأ في التحقق من اشتراك المستخدم {user_id} في القناة {channel_id}: {e}")
+            # إذا حدث خطأ (مثل البوت ليس مشرفاً في القناة)، نسمح بالدخول مؤقتاً
             return True
-        else:
-            return False
-    except Exception as e:
-        logger.error(f"خطأ في التحقق من اشتراك المستخدم {user_id}: {e}")
-        # إذا حدث خطأ (مثل البوت ليس مشرفاً في القناة)، نسمح بالدخول مؤقتاً
-        # لكن ينصح بجعل البوت مشرفاً في القناة
-        return True
+    
+    # مشترك في جميع القنوات
+    return True
 
 def safe_api_request(url, debug_name="API Request"):
     """تنفيذ طلب API بأمان مع إعادة المحاولة"""
@@ -991,21 +1002,34 @@ def get_players_buttons(manager_id, gameweek, page, total_pages):
     
     return InlineKeyboardMarkup(keyboard)
 
-
 def get_subscription_button():
     """
-    زر للاشتراك في القناة
-    عند الضغط عليه يفتح القناة مباشرة في تطبيق تليجرام
+    أزرار للاشتراك في جميع القنوات المطلوبة
+    كل قناة لها زر خاص بها
     """
-    # إزالة @ من اسم القناة إذا وجدت للحصول على الرابط الصحيح
-    channel_link = CHANNEL_ID
-    if channel_link.startswith('@'):
-        channel_link = channel_link[1:]  # إزالة @
+    keyboard = []
     
-    keyboard = [
-        [InlineKeyboardButton("📢 اشترك في القناة", url=f"https://t.me/{channel_link}")],
-        [InlineKeyboardButton("✅ تم الاشتراك - تحقق مرة أخرى", callback_data="check_subscription")]
-    ]
+    # إضافة زر لكل قناة
+    for channel in CHANNELS:
+        channel_id = channel["id"]
+        channel_name = channel.get("name", channel_id)
+        
+        # إزالة @ من اسم القناة إذا وجدت للحصول على الرابط الصحيح
+        channel_link = channel_id
+        if channel_link.startswith('@'):
+            channel_link = channel_link[1:]
+        
+        keyboard.append([InlineKeyboardButton(
+            f"📢 اشترك في {channel_name}", 
+            url=f"https://t.me/{channel_link}"
+        )])
+    
+    # زر التحقق
+    keyboard.append([InlineKeyboardButton(
+        "✅ تم الاشتراك - تحقق مرة أخرى", 
+        callback_data="check_subscription"
+    )])
+    
     return InlineKeyboardMarkup(keyboard)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1021,18 +1045,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not is_subscribed:
             # المستخدم غير مشترك - عرض رسالة الاشتراك الإجباري مع زر
-            await update.message.reply_text(
-                f"🔒 **يرجى الاشتراك في القناة أولاً!**\n\n"
-                f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قناتنا:\n"
-                f"📢 {CHANNEL_ID}\n\n"
-                f"✅ **خطوات الاشتراك:**\n"
-                f"1️⃣ اضغط على زر 'اشترك في القناة' أدناه\n"
-                f"2️⃣ انضم إلى القناة\n"
-                f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'\n\n"
-                f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في القناة.",
-                parse_mode='Markdown',
-                reply_markup=get_subscription_button()
-            )
+            # بناء قائمة القنوات المطلوبة
+channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+
+    await update.message.reply_text(
+        f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+        f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قنواتنا:\n"
+        f"{channels_list}\n\n"
+        f"✅ **خطوات الاشتراك:**\n"
+        f"1️⃣ اضغط على أزرار 'اشترك في القناة' أدناه لكل قناة\n"
+        f"2️⃣ انضم إلى جميع القنوات\n"
+        f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'\n\n"
+        f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في جميع القنوات.",
+        parse_mode='Markdown',
+        reply_markup=get_subscription_button()
+    )    
             return
         
         # المستخدم مشترك - عرض رسالة الترحيب
@@ -1124,10 +1151,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_subscribed = await check_subscription(context, user_id)
     
     if not is_subscribed:
+        # بناء قائمة القنوات المطلوبة
+        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+        
         await context.bot.edit_message_text(
-            text=f"🔒 **يرجى الاشتراك في القناة أولاً!**\n\n"
-                 f"📢 {CHANNEL_ID}\n\n"
-                 f"✅ بعد الاشتراك، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+            text=f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+                 f"{channels_list}\n\n"
+                 f"✅ بعد الاشتراك في الكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
             chat_id=query.message.chat_id,
             message_id=query.message.message_id,
             parse_mode='Markdown',
@@ -1213,14 +1243,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 
             else:
-                # ❌ المستخدم لا يزال غير مشترك - نبقى في نفس الرسالة
+                # ❌ المستخدم لا يزال غير مشترك في جميع القنوات
+                channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+                
                 await context.bot.edit_message_text(
-                    text=f"❌ **لم يتم العثور على اشتراكك بعد.**\n\n"
-                         f"يرجى الانضمام إلى القناة أولاً:\n"
-                         f"📢 {CHANNEL_ID}\n\n"
+                    text=f"❌ **لم يتم العثور على اشتراكك في جميع القنوات بعد.**\n\n"
+                         f"يرجى الانضمام إلى جميع القنوات أولاً:\n"
+                         f"{channels_list}\n\n"
                          f"📌 **خطوات الاشتراك:**\n"
-                         f"1️⃣ اضغط على زر 'اشترك في القناة'\n"
-                         f"2️⃣ انضم إلى القناة\n"
+                         f"1️⃣ اضغط على أزرار 'اشترك في القناة' لكل قناة\n"
+                         f"2️⃣ انضم إلى جميع القنوات\n"
                          f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'",
                     chat_id=chat_id,
                     message_id=message_id,
