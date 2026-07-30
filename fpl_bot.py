@@ -1572,56 +1572,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # تشغيل البوت
 # ============================================================
 
-def get_all_players_data():
-    """جلب جميع اللاعبين مع مراكزهم وأسعارهم ونقاطهم"""
-    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_all_players_data")
-    players_list = []
-    
-    if data and "elements" in data:
-        for player in data["elements"]:
-            # تطبيق التعديلات اليدوية للمراكز من الموسم الجديد
-            player_id = player["id"]
-            if player_id in POSITION_OVERRIDES_26_27:
-                new_pos, _ = POSITION_OVERRIDES_26_27[player_id]
-                player["element_type"] = new_pos
-            
-            # تأكد من تحويل القيم إلى أرقام
-            try:
-                total_points = int(player.get("total_points", 0))
-            except (ValueError, TypeError):
-                total_points = 0
-                
-            try:
-                price = float(player.get("now_cost", 0)) / 10
-            except (ValueError, TypeError):
-                price = 0.0
-                
-            try:
-                selected_by = float(player.get("selected_by_percent", 0))
-            except (ValueError, TypeError):
-                selected_by = 0.0
-                
-            try:
-                form = float(player.get("form", 0))
-            except (ValueError, TypeError):
-                form = 0.0
-            
-            players_list.append({
-                "id": player["id"],
-                "name": f"{player['first_name']} {player['second_name']}",
-                "position": player.get("element_type", 0),
-                "price": price,
-                "total_points": total_points,
-                "team": player.get("team", 0),
-                "selected_by": selected_by,
-                "form": form
-            })
-    
-    # ترتيب اللاعبين حسب النقاط (تنازلي) - تأكد من أن total_points رقم
-    players_list.sort(key=lambda x: x["total_points"] if isinstance(x["total_points"], (int, float)) else 0, reverse=True)
-    logger.info(f"👥 تم تحميل {len(players_list)} لاعب مع بياناتهم الكاملة")
-    return players_list
-    
 # ==========================================
 players_dict = get_players_dict()
 current_gameweek = get_current_gameweek()
