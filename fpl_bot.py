@@ -1275,20 +1275,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
     
-    # ========== ✅ تعريف manager_id هنا ==========
-    # محاولة استخراج manager_id من الـ context أولاً
+    # ========== تعريف manager_id ==========
     manager_id = context.user_data.get('current_manager_id')
     
-    # إذا لم يكن موجوداً في الـ context، نحاول استخراجه من الأجزاء
     if not manager_id:
         try:
-            # الأجزاء عادة تكون: [type, manager_id, ...]
             if len(parts) >= 2:
                 manager_id = parts[1]
         except:
             pass
     
-    # إذا لم نجد manager_id، نطلب من المستخدم إرساله مرة أخرى
     if not manager_id:
         await context.bot.edit_message_text(
             text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى باستخدام /start",
@@ -1303,15 +1299,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if parts[0] == "check":
         logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
         
-        # إعادة التحقق من الاشتراك
         is_subscribed = await check_subscription(context, user_id)
         logger.info(f"نتيجة التحقق: {is_subscribed}")
         
         if is_subscribed:
-            # ✅ المستخدم مشترك الآن - نحذف رسالة الاشتراك ونرسل رسالة الترحيب
             logger.info(f"✅ المستخدم {user_id} مشترك في جميع القنوات")
             
-            # 1. حذف رسالة الاشتراك القديمة
             try:
                 await context.bot.delete_message(
                     chat_id=chat_id,
@@ -1320,7 +1313,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"✅ تم حذف رسالة الاشتراك بنجاح")
             except Exception as e:
                 logger.error(f"فشل في حذف رسالة الاشتراك: {e}")
-                # إذا فشل الحذف، نقوم بتعديلها بدلاً من ذلك
                 await context.bot.edit_message_text(
                     text="✅ **تم التحقق من اشتراكك!**\n\nأرسل معرف المدرب للبدء.",
                     chat_id=chat_id,
@@ -1329,7 +1321,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # 2. إرسال رسالة الترحيب الجديدة
             welcome_text = (
                 "🎮 **بوت مساعد الفانتاسي**\n"
                 "✨ **كيف يعمل؟**\n"
@@ -1359,7 +1350,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"✅ تم إرسال رسالة الترحيب للمستخدم {user_id}")
             
         else:
-            # ❌ المستخدم لا يزال غير مشترك في جميع القنوات
             logger.info(f"❌ المستخدم {user_id} لا يزال غير مشترك في جميع القنوات")
             channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
             
@@ -1378,7 +1368,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
     
-        # ============================================================
+    # ============================================================
     # معالجة أزرار ترتيب اللاعبين
     # ============================================================
     if parts[0] == "players_sort":
@@ -1426,12 +1416,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # ============================================================
-    # معالجة زر اللاعبين (معدل)
+    # معالجة زر اللاعبين
     # ============================================================
     if parts[0] == "players":
         gameweek = int(parts[2])
         page = int(parts[3]) if len(parts) > 3 else 0
-        sort_by = parts[4] if len(parts) > 4 else "points"  # استخراج نوع الترتيب
+        sort_by = parts[4] if len(parts) > 4 else "points"
         
         await context.bot.edit_message_text(
             text=f"🔄 جاري تحميل قائمة اللاعبين - الصفحة {page + 1}...",
