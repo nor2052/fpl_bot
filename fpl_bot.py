@@ -27,7 +27,7 @@ print("BOT_TOKEN exists:", "BOT_TOKEN" in os.environ)
 BASE_URL = "https://fantasy.premierleague.com/api"
 CHANNELS = [
     {"id": "@Fantasypremierlea", "name": "القناة الأولى"},
-    {"id": "@nst3li8", "name": "القناة الثانية"},  # غيّر إلى قناتك الثانية
+    {"id": "@Fantasyargoal", "name": "القناة الثانية"},  # غيّر إلى قناتك الثانية
 ]
 
 POSITION_OVERRIDES_26_27 = {
@@ -1003,18 +1003,11 @@ def get_players_buttons(manager_id, gameweek, page, total_pages):
     return InlineKeyboardMarkup(keyboard)
 
 def get_subscription_button():
-    """
-    أزرار للاشتراك في جميع القنوات المطلوبة
-    كل قناة لها زر خاص بها
-    """
     keyboard = []
     
-    # إضافة زر لكل قناة
     for channel in CHANNELS:
         channel_id = channel["id"]
         channel_name = channel.get("name", channel_id)
-        
-        # إزالة @ من اسم القناة إذا وجدت للحصول على الرابط الصحيح
         channel_link = channel_id
         if channel_link.startswith('@'):
             channel_link = channel_link[1:]
@@ -1024,13 +1017,14 @@ def get_subscription_button():
             url=f"https://t.me/{channel_link}"
         )])
     
-    # زر التحقق
+    # ✅ تأكد من أن هذا هو نفس الاسم المستخدم في handle_callback
     keyboard.append([InlineKeyboardButton(
         "✅ تم الاشتراك - تحقق مرة أخرى", 
-        callback_data="check_subscription"
+        callback_data="check_subscription"  # هذا سيصبح parts[0] = "check"
     )])
     
     return InlineKeyboardMarkup(keyboard)
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
@@ -1174,96 +1168,118 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_id = query.message.message_id
     parts = data.split("_")
     
-    if len(parts) < 3:
+    # ========== طباعة للتصحيح ==========
+    logger.info(f"📩 تم استلام callback: {data}")
+    logger.info(f"📩 الأجزاء: {parts}")
+    # ===================================
+    
+    if len(parts) < 2:
         logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
     
+    # ============================================================
+    # معالجة زر "تم الاشتراك - تحقق مرة أخرى"
+    # ============================================================
+    if parts[0] == "check":
+        logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
+        
+        # إعادة التحقق من الاشتراك
+        is_subscribed = await check_subscription(context, user_id)
+        logger.info(f"نتيجة التحقق: {is_subscribed}")
+        
+        if is_subscribed:
+            # ✅ المستخدم مشترك الآن - نحذف رسالة الاشتراك ونرسل رسالة الترحيب
+            logger.info(f"✅ المستخدم {user_id} مشترك في جميع القنوات")
+            
+            # 1. حذف رسالة الاشتراك القديمة
+            try:
+                await context.bot.delete_message(
+                    chat_id=chat_id,
+                    message_id=message_id
+                )
+                logger.info(f"✅ تم حذف رسالة الاشتراك بنجاح")
+            except Exception as e:
+                logger.error(f"فشل في حذف رسالة الاشتراك: {e}")
+                # إذا فشل الحذف، نقوم بتعديلها بدلاً من ذلك
+                await context.bot.edit_message_text(
+                    text="✅ **تم التحقق من اشتراكك!**\n\nأرسل معرف المدرب للبدء.",
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # 2. إرسال رسالة الترحيب الجديدة
+            welcome_text = (
+                "🎮 **بوت مساعد الفانتاسي**\n"
+                "✨ **كيف يعمل؟**\n"
+                "• أرسل **رقم معرف المدرب**\n"
+                "• سأعرض لك بيانات الجولة الحالية تلقائياً\n\n"
+                "📊 **البيانات المتاحة**\n"
+                "✓ نقاط الجولة للمدرب\n"
+                "✓ النقاط الكلية والترتيب العالمي\n"
+                "✓ نقاط كل لاعب في الفريق\n"
+                "✓ نقاط القائد\n"
+                "✓ قيمة الفريق والبنك 💰\n"
+                "✓ ترتيب المدرب في كل دوري\n"
+                "✓ تاريخ المواسم السابقة\n"
+                "✓ نتائج المباريات وتفاصيلها ⚽\n"
+                "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات \n"
+                "🔑 **كيف تحصل على معرف مدرب؟**\n"
+                "افتح موقع FPL، الرقم في الرابط:\n"
+                "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
+                "📝 **مثال:** أرسل `2794801`"
+            )
+            
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=welcome_text,
+                parse_mode='Markdown'
+            )
+            logger.info(f"✅ تم إرسال رسالة الترحيب للمستخدم {user_id}")
+            
+        else:
+            # ❌ المستخدم لا يزال غير مشترك في جميع القنوات
+            logger.info(f"❌ المستخدم {user_id} لا يزال غير مشترك في جميع القنوات")
+            channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+            
+            await context.bot.edit_message_text(
+                text=f"❌ **لم يتم العثور على اشتراكك في جميع القنوات بعد.**\n\n"
+                     f"يرجى الانضمام إلى جميع القنوات أولاً:\n"
+                     f"{channels_list}\n\n"
+                     f"📌 **خطوات الاشتراك:**\n"
+                     f"1️⃣ اضغط على أزرار 'اشترك في القناة' لكل قناة\n"
+                     f"2️⃣ انضم إلى جميع القنوات\n"
+                     f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'",
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode='Markdown',
+                reply_markup=get_subscription_button()
+            )
+        return
+    
+    # ============================================================
+    # باقي المعالجات (players, nav, simple, detail, ...)
+    # ============================================================
+    
+    # إذا لم نجد manager_id في السياق، نحاول استخراجه من الأجزاء
     manager_id = context.user_data.get('current_manager_id')
     if not manager_id:
         try:
-            manager_id = parts[1]
-        except IndexError:
-            await context.bot.edit_message_text(
-                text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى باستخدام /start",
-                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-            )
-            return
+            # محاولة استخراج manager_id من الأجزاء (إذا كان موجوداً)
+            if len(parts) >= 2:
+                manager_id = parts[1]
+        except:
+            pass
+    
+    if not manager_id:
+        await context.bot.edit_message_text(
+            text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى باستخدام /start",
+            chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+        )
+        return
     
     try:
-        # ============================================================
-        # معالجة زر "تم الاشتراك - تحقق مرة أخرى"
-        # ============================================================
-        if parts[0] == "check":
-            # إعادة التحقق من الاشتراك
-            is_subscribed = await check_subscription(context, user_id)
-            
-            if is_subscribed:
-                # ✅ المستخدم مشترك الآن - نحذف رسالة الاشتراك ونرسل رسالة الترحيب
-                
-                # 1. حذف رسالة الاشتراك القديمة
-                try:
-                    await context.bot.delete_message(
-                        chat_id=chat_id,
-                        message_id=message_id
-                    )
-                except Exception as e:
-                    logger.error(f"فشل في حذف رسالة الاشتراك: {e}")
-                    # إذا فشل الحذف، نقوم بتعديلها بدلاً من ذلك
-                    await context.bot.edit_message_text(
-                        text="✅ **تم التحقق من اشتراكك!**\n\nأرسل معرف المدرب للبدء.",
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        parse_mode='Markdown'
-                    )
-                    return
-                
-                # 2. إرسال رسالة الترحيب الجديدة
-                welcome_text = (
-                    "🎮 **بوت مساعد الفانتاسي**\n"
-                    "✨ **كيف يعمل؟**\n"
-                    "• أرسل **رقم معرف المدرب**\n"
-                    "• سأعرض لك بيانات الجولة الحالية تلقائياً\n\n"
-                    "📊 **البيانات المتاحة**\n"
-                    "✓ نقاط الجولة للمدرب\n"
-                    "✓ النقاط الكلية والترتيب العالمي\n"
-                    "✓ نقاط كل لاعب في الفريق\n"
-                    "✓ نقاط القائد\n"
-                    "✓ قيمة الفريق والبنك 💰\n"
-                    "✓ ترتيب المدرب في كل دوري\n"
-                    "✓ تاريخ المواسم السابقة\n"
-                    "✓ نتائج المباريات وتفاصيلها ⚽\n"
-                    "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات \n"
-                    "🔑 **كيف تحصل على معرف مدرب؟**\n"
-                    "افتح موقع FPL، الرقم في الرابط:\n"
-                    "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
-                    "📝 **مثال:** أرسل `2794801`"
-                )
-                
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=welcome_text,
-                    parse_mode='Markdown'
-                )
-                
-            else:
-                # ❌ المستخدم لا يزال غير مشترك في جميع القنوات
-                channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
-                
-                await context.bot.edit_message_text(
-                    text=f"❌ **لم يتم العثور على اشتراكك في جميع القنوات بعد.**\n\n"
-                         f"يرجى الانضمام إلى جميع القنوات أولاً:\n"
-                         f"{channels_list}\n\n"
-                         f"📌 **خطوات الاشتراك:**\n"
-                         f"1️⃣ اضغط على أزرار 'اشترك في القناة' لكل قناة\n"
-                         f"2️⃣ انضم إلى جميع القنوات\n"
-                         f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'",
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    parse_mode='Markdown',
-                    reply_markup=get_subscription_button()
-                )
-            return
-        
         # ============================================================
         # معالجة زر اللاعبين
         # ============================================================
@@ -1403,7 +1419,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as edit_error:
             logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
-            
+
 # ============================================================
 # تشغيل البوت
 # ============================================================
