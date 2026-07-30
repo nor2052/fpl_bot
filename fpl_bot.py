@@ -30,14 +30,6 @@ CHANNELS = [
     {"id": "@Fantasyargoal", "name": "القناة الثانية"},  # غيّر إلى قناتك الثانية
 ]
 
-# ========== إضافة التخزين المؤقت للاعبين ==========
-CACHE_DURATION = 300  # 5 دقائق بالثواني
-players_cache = {
-    "data": None,
-    "timestamp": None
-}
-# ================================================
-
 POSITION_OVERRIDES_26_27 = {
     # id: (المركز الجديد, الاسم الكامل)
     # 1=حارس, 2=مدافع, 3=وسط, 4=مهاجم
@@ -246,92 +238,34 @@ def get_players_dict():
     logger.info(f"👥 تم تحميل {len(players)} لاعب")
     return players
 
-
-def get_all_players_data(sort_by="points", force_refresh=False):
-    """
-    جلب جميع اللاعبين مع مراكزهم وأسعارهم ونقاطهم
-    مع استخدام التخزين المؤقت لتقليل طلبات API
-    sort_by: "points" | "price" | "ownership"
-    force_refresh: تجاهل الكاش وجلب بيانات جديدة
-    """
-    global players_cache
+def get_all_players_data():
+    """جلب جميع اللاعبين مع مراكزهم وأسعارهم ونقاطهم"""
+    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_all_players_data")
+    players_list = []
     
-    import time
+    if data and "elements" in data:
+        for player in data["elements"]:
+            # تطبيق التعديلات اليدوية للمراكز من الموسم الجديد
+            player_id = player["id"]
+            if player_id in POSITION_OVERRIDES_26_27:
+                new_pos, _ = POSITION_OVERRIDES_26_27[player_id]
+                player["element_type"] = new_pos
+            
+            players_list.append({
+                "id": player["id"],
+                "name": f"{player['first_name']} {player['second_name']}",
+                "position": player.get("element_type", 0),
+                "price": player.get("now_cost", 0) / 10,  # السعر مقسوم على 10
+                "total_points": player.get("total_points", 0),
+                "team": player.get("team", 0),
+                "selected_by": player.get("selected_by_percent", 0),
+                "form": player.get("form", 0)
+            })
     
-    # التحقق من صلاحية الكاش
-    current_time = time.time()
-    cache_valid = (
-        players_cache["data"] is not None and 
-        players_cache["timestamp"] is not None and
-        (current_time - players_cache["timestamp"]) < CACHE_DURATION and
-        not force_refresh
-    )
-    
-    if cache_valid:
-        logger.info(f"✅ استخدام البيانات المخزنة مؤقتاً (منذ {int((current_time - players_cache['timestamp'])/60)} دقيقة)")
-        players_list = players_cache["data"]
-    else:
-        logger.info("🔄 جلب بيانات اللاعبين من API...")
-        data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_all_players_data")
-        players_list = []
-        
-        if data and "elements" in data:
-            for player in data["elements"]:
-                # تطبيق التعديلات اليدوية للمراكز من الموسم الجديد
-                player_id = player["id"]
-                if player_id in POSITION_OVERRIDES_26_27:
-                    new_pos, _ = POSITION_OVERRIDES_26_27[player_id]
-                    player["element_type"] = new_pos
-                
-                # تأكد من تحويل القيم إلى أرقام
-                try:
-                    total_points = int(player.get("total_points", 0))
-                except (ValueError, TypeError):
-                    total_points = 0
-                    
-                try:
-                    price = float(player.get("now_cost", 0)) / 10
-                except (ValueError, TypeError):
-                    price = 0.0
-                    
-                try:
-                    selected_by = float(player.get("selected_by_percent", 0))
-                except (ValueError, TypeError):
-                    selected_by = 0.0
-                    
-                try:
-                    form = float(player.get("form", 0))
-                except (ValueError, TypeError):
-                    form = 0.0
-                
-                players_list.append({
-                    "id": player["id"],
-                    "name": f"{player['first_name']} {player['second_name']}",
-                    "position": player.get("element_type", 0),
-                    "price": price,
-                    "total_points": total_points,
-                    "team": player.get("team", 0),
-                    "selected_by": selected_by,
-                    "form": form
-                })
-        
-        # تخزين البيانات في الكاش
-        players_cache["data"] = players_list
-        players_cache["timestamp"] = current_time
-        logger.info(f"👥 تم تحميل {len(players_list)} لاعب وتخزينهم في الكاش")
-    
-    # ترتيب اللاعبين حسب الخيار المحدد
-    # نعمل على نسخة من القائمة حتى لا نعدل الكاش الأصلي
-    sorted_list = players_list.copy()
-    
-    if sort_by == "price":
-        sorted_list.sort(key=lambda x: x["price"], reverse=True)
-    elif sort_by == "ownership":
-        sorted_list.sort(key=lambda x: x["selected_by"], reverse=True)
-    else:  # points (الافتراضي)
-        sorted_list.sort(key=lambda x: x["total_points"], reverse=True)
-    
-    return sorted_list
+    # ترتيب اللاعبين حسب النقاط (تنازلي)
+    players_list.sort(key=lambda x: x["total_points"], reverse=True)
+    logger.info(f"👥 تم تحميل {len(players_list)} لاعب مع بياناتهم الكاملة")
+    return players_list
 
 def get_fixtures(gameweek=None):
     if gameweek:
@@ -948,17 +882,16 @@ def format_deadline_display(manager_id, info, gameweek):
     )
     return response
 
-def format_players_display(manager_id, info, gameweek, page=0, sort_by="points"):
+def format_players_display(manager_id, info, gameweek, page=0):
     """
     عرض جميع اللاعبين مع ترقيم الصفحات
     كل صفحة تعرض 20 لاعب
-    sort_by: "points" | "price" | "ownership"
     """
     name = sanitize_markdown(safe_str(info.get("name")))
     players_per_page = 20
     
-    # جلب جميع اللاعبين مع الترتيب المطلوب
-    all_players = get_all_players_data(sort_by)
+    # جلب جميع اللاعبين
+    all_players = get_all_players_data()
     total_players = len(all_players)
     total_pages = (total_players + players_per_page - 1) // players_per_page
     
@@ -972,14 +905,6 @@ def format_players_display(manager_id, info, gameweek, page=0, sort_by="points")
     update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
     update_date = now_mecca.strftime("%d/%m/%Y")
     
-    # أسماء الترتيب للعرض
-    sort_names = {
-        "points": "🏆 النقاط",
-        "price": "💰 السعر",
-        "ownership": "👥 الملكية"
-    }
-    sort_display = sort_names.get(sort_by, "النقاط")
-    
     response = (
         f"👥 **جميع لاعبي الدوري الإنجليزي**\n"
         f"👤 {name}\n"
@@ -988,7 +913,6 @@ def format_players_display(manager_id, info, gameweek, page=0, sort_by="points")
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 الصفحة {page + 1} من {total_pages}\n"
         f"👥 إجمالي اللاعبين: {total_players}\n"
-        f"📌 مرتب حسب: {sort_display}\n"  # ✅ إضافة عرض نوع الترتيب
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     
@@ -1024,7 +948,7 @@ def format_players_display(manager_id, info, gameweek, page=0, sort_by="points")
         form = player.get("form", 0)
         form_str = f"{form:.1f}" if form > 0 else "-"
         
-        # تنسيق الصف
+        # تنسيق الصف - استخدم أسماء منظمة
         response += (
             f"{idx:3d}. **{player_name}**\n"
             f"   {pos_name} | {team_short} | السعر: {price_str} | النقاط: {points} | الفورم: {form_str} | الاختيار: {selected_str}\n\n"
@@ -1033,11 +957,10 @@ def format_players_display(manager_id, info, gameweek, page=0, sort_by="points")
     # إضافة معلومات إضافية
     response += "━━━━━━━━━━━━━━━━━━━━━\n"
     response += f"📊 إجمالي اللاعبين المعروضين: {len(page_players)}\n"
-    response += "🔄 استخدم الأزرار أدناه للتنقل والترتيب"
+    response += "🔄 استخدم الأزرار أدناه للتنقل بين الصفحات"
     
     return response
-
-
+    
 # ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
@@ -1052,52 +975,29 @@ def get_buttons(manager_id, gameweek, current_view):
         [InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}"),
          InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
-         InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0_points")],
+         InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
     return InlineKeyboardMarkup(keyboard)
-
-def get_players_buttons(manager_id, gameweek, page, total_pages, current_sort="points"):
+    
+def get_players_buttons(manager_id, gameweek, page, total_pages):
     """
-    أزرار خاصة بعرض اللاعبين مع التنقل بين الصفحات وزر الرجوع وأزرار الترتيب
+    أزرار خاصة بعرض اللاعبين مع التنقل بين الصفحات وزر الرجوع
     """
     keyboard = []
     
-    # ========== أزرار الترتيب ==========
-    sort_buttons = []
-    
-    # زر النقاط
-    if current_sort != "points":
-        sort_buttons.append(InlineKeyboardButton("🏆 نقاط", callback_data=f"players_sort_{manager_id}_{gameweek}_points_{page}"))
-    else:
-        sort_buttons.append(InlineKeyboardButton("✅ نقاط", callback_data=f"players_sort_{manager_id}_{gameweek}_points_{page}"))
-    
-    # زر السعر
-    if current_sort != "price":
-        sort_buttons.append(InlineKeyboardButton("💰 سعر", callback_data=f"players_sort_{manager_id}_{gameweek}_price_{page}"))
-    else:
-        sort_buttons.append(InlineKeyboardButton("✅ سعر", callback_data=f"players_sort_{manager_id}_{gameweek}_price_{page}"))
-    
-    # زر الملكية
-    if current_sort != "ownership":
-        sort_buttons.append(InlineKeyboardButton("👥 ملكية", callback_data=f"players_sort_{manager_id}_{gameweek}_ownership_{page}"))
-    else:
-        sort_buttons.append(InlineKeyboardButton("✅ ملكية", callback_data=f"players_sort_{manager_id}_{gameweek}_ownership_{page}"))
-    
-    keyboard.append(sort_buttons)
-    
-    # ========== أزرار التنقل بين الصفحات ==========
+    # أزرار التنقل بين الصفحات
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"players_{manager_id}_{gameweek}_{page-1}_{current_sort}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"players_{manager_id}_{gameweek}_{page-1}"))
     if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"players_{manager_id}_{gameweek}_{page+1}_{current_sort}"))
+        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"players_{manager_id}_{gameweek}_{page+1}"))
     
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # ========== زر الرجوع للصفحة الرئيسية ==========
+    # زر الرجوع للصفحة الرئيسية
     keyboard.append([InlineKeyboardButton("🔙 العودة للصفحة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
     
     return InlineKeyboardMarkup(keyboard)
@@ -1277,36 +1177,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
     
-    # ========== تعريف manager_id ==========
-    manager_id = context.user_data.get('current_manager_id')
-    
-    if not manager_id:
-        try:
-            if len(parts) >= 2:
-                manager_id = parts[1]
-        except:
-            pass
-    
-    if not manager_id:
-        await context.bot.edit_message_text(
-            text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى باستخدام /start",
-            chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-        )
-        return
-    # =============================================
-    
     # ============================================================
     # معالجة زر "تم الاشتراك - تحقق مرة أخرى"
     # ============================================================
     if parts[0] == "check":
         logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
         
+        # إعادة التحقق من الاشتراك
         is_subscribed = await check_subscription(context, user_id)
         logger.info(f"نتيجة التحقق: {is_subscribed}")
         
         if is_subscribed:
+            # ✅ المستخدم مشترك الآن - نحذف رسالة الاشتراك ونرسل رسالة الترحيب
             logger.info(f"✅ المستخدم {user_id} مشترك في جميع القنوات")
             
+            # 1. حذف رسالة الاشتراك القديمة
             try:
                 await context.bot.delete_message(
                     chat_id=chat_id,
@@ -1315,6 +1200,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"✅ تم حذف رسالة الاشتراك بنجاح")
             except Exception as e:
                 logger.error(f"فشل في حذف رسالة الاشتراك: {e}")
+                # إذا فشل الحذف، نقوم بتعديلها بدلاً من ذلك
                 await context.bot.edit_message_text(
                     text="✅ **تم التحقق من اشتراكك!**\n\nأرسل معرف المدرب للبدء.",
                     chat_id=chat_id,
@@ -1323,6 +1209,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
+            # 2. إرسال رسالة الترحيب الجديدة
             welcome_text = (
                 "🎮 **بوت مساعد الفانتاسي**\n"
                 "✨ **كيف يعمل؟**\n"
@@ -1352,6 +1239,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"✅ تم إرسال رسالة الترحيب للمستخدم {user_id}")
             
         else:
+            # ❌ المستخدم لا يزال غير مشترك في جميع القنوات
             logger.info(f"❌ المستخدم {user_id} لا يزال غير مشترك في جميع القنوات")
             channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
             
@@ -1371,208 +1259,221 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # ============================================================
-    # معالجة أزرار ترتيب اللاعبين
+    # باقي المعالجات (players, nav, simple, detail, ...)
     # ============================================================
-    if parts[0] == "players_sort":
-        # التنسيق: players_sort_{manager_id}_{gameweek}_{sort_by}_{page}
-        # مثال: players_sort_12345_1_points_0
-        gameweek = int(parts[2])
-        sort_by = parts[3]  # points, price, ownership
-        
-        # ✅ دائماً نبدأ من الصفحة الأولى عند تغيير الترتيب
-        page = 0
-        
-        logger.info(f"📊 تغيير الترتيب إلى: {sort_by} (العودة للصفحة الأولى)")
-        
+    
+    # إذا لم نجد manager_id في السياق، نحاول استخراجه من الأجزاء
+    manager_id = context.user_data.get('current_manager_id')
+    if not manager_id:
+        try:
+            # محاولة استخراج manager_id من الأجزاء (إذا كان موجوداً)
+            if len(parts) >= 2:
+                manager_id = parts[1]
+        except:
+            pass
+    
+    if not manager_id:
         await context.bot.edit_message_text(
-            text=f"🔄 جاري ترتيب اللاعبين حسب {sort_by}...",
-            chat_id=chat_id, message_id=message_id, reply_markup=None
-        )
-        
-        info = get_manager_info(manager_id)
-        if not info:
-            await context.bot.edit_message_text(
-                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-            )
-            return
-        
-        # حساب عدد الصفحات
-        all_players = get_all_players_data(sort_by)
-        total_pages = (len(all_players) + 19) // 20  # 20 لاعب في الصفحة
-        
-        # التأكد من أن الصفحة 0 ضمن النطاق
-        if total_pages <= 0:
-            total_pages = 1
-        if page >= total_pages:
-            page = total_pages - 1
-        if page < 0:
-            page = 0
-        
-        text = format_players_display(manager_id, info, gameweek, page, sort_by)
-        reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
-        
-        await context.bot.edit_message_text(
-            text=text, chat_id=chat_id, message_id=message_id,
-            parse_mode='Markdown', reply_markup=reply_markup
+            text="❌ حدث خطأ: يرجى إرسال معرف المدرب مرة أخرى باستخدام /start",
+            chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
         )
         return
     
-    # ============================================================
-    # معالجة زر اللاعبين
-    # ============================================================
-    if parts[0] == "players":
-        # التنسيق: players_{manager_id}_{gameweek}_{page}_{sort_by}
-        # مثال: players_12345_1_0_points
-        gameweek = int(parts[2])
-        page = int(parts[3]) if len(parts) > 3 else 0
-        sort_by = parts[4] if len(parts) > 4 else "points"
-        
-        await context.bot.edit_message_text(
-            text=f"🔄 جاري تحميل قائمة اللاعبين - الصفحة {page + 1}...",
-            chat_id=chat_id, message_id=message_id, reply_markup=None
-        )
-        
-        info = get_manager_info(manager_id)
-        if not info:
+    try:
+        # ============================================================
+        # معالجة زر اللاعبين
+        # ============================================================
+        if parts[0] == "players":
+            gameweek = int(parts[2])
+            page = int(parts[3]) if len(parts) > 3 else 0
+            
             await context.bot.edit_message_text(
-                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                text=f"🔄 جاري تحميل قائمة اللاعبين - الصفحة {page + 1}...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            # حساب عدد الصفحات
+            all_players = get_all_players_data()
+            total_pages = (len(all_players) + 19) // 20  # 20 لاعب في الصفحة
+            
+            text = format_players_display(manager_id, info, gameweek, page)
+            reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages)
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
             )
             return
         
-        # حساب عدد الصفحات
-        all_players = get_all_players_data(sort_by)
-        total_pages = (len(all_players) + 19) // 20  # 20 لاعب في الصفحة
-        
-        # التأكد من أن الصفحة الحالية ضمن النطاق
-        if page >= total_pages:
-            page = total_pages - 1
-        if page < 0:
-            page = 0
-        
-        text = format_players_display(manager_id, info, gameweek, page, sort_by)
-        reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
-        
-        await context.bot.edit_message_text(
-            text=text, chat_id=chat_id, message_id=message_id,
-            parse_mode='Markdown', reply_markup=reply_markup
-        )
-        return
-    
-    # ============================================================
-    # معالجة التنقل بين الجولات
-    # ============================================================
-    if parts[0] == "nav":
-        # التنسيق: nav_{manager_id}_{gameweek}
-        gameweek = int(parts[2])
-        current_text = query.message.text
-        
-        if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
-            view_type = "detail"
-        elif "الدوريات" in current_text:
-            view_type = "leagues"
-        elif "المباريات" in current_text or "نتائج" in current_text:
-            view_type = "fixtures"
-        elif "المواعيد" in current_text:
-            view_type = "deadline"
-        else:
-            view_type = "simple"
-        
-        await context.bot.edit_message_text(
-            text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
-            chat_id=chat_id, message_id=message_id, reply_markup=None
-        )
-        
-        info = get_manager_info(manager_id)
-        if not info:
+        # ============================================================
+        # معالجة التنقل بين الجولات
+        # ============================================================
+        elif parts[0] == "nav":
+            gameweek = int(parts[2])
+            current_text = query.message.text
+            
+            if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
+                view_type = "detail"
+            elif "الدوريات" in current_text:
+                view_type = "leagues"
+            elif "المباريات" in current_text or "نتائج" in current_text:
+                view_type = "fixtures"
+            elif "المواعيد" in current_text:
+                view_type = "deadline"
+            else:
+                view_type = "simple"
+            
             await context.bot.edit_message_text(
-                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            if view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+            else:
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text_map = {
+                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+                }
+                text = text_map.get(view_type, "")
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
             )
             return
         
-        if view_type == "deadline":
-            text = format_deadline_display(manager_id, info, gameweek)
-        else:
-            picks_data = get_manager_picks(manager_id, gameweek)
-            history = get_manager_history(manager_id)
-            text_map = {
-                "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+        # ============================================================
+        # معالجة الأزرار الأخرى (simple, detail, leagues, fixtures, deadline)
+        # ============================================================
+        elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
+            view_type = parts[0]
+            gameweek = int(parts[2])
+            
+            loading_texts = {
+                "simple": "العرض البسيط",
+                "detail": "العرض المفصل",
+                "leagues": "الدوريات والمواسم",
+                "fixtures": "المباريات",
+                "deadline": "مواعيد الجولة"
             }
-            text = text_map.get(view_type, "")
-        
-        await context.bot.edit_message_text(
-            text=text, chat_id=chat_id, message_id=message_id,
-            parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
-        )
-        return
-    
-    # ============================================================
-    # معالجة الأزرار الأخرى (simple, detail, leagues, fixtures, deadline)
-    # ============================================================
-    if parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
-        # التنسيق: {view_type}_{manager_id}_{gameweek}
-        view_type = parts[0]
-        gameweek = int(parts[2])
-        
-        loading_texts = {
-            "simple": "العرض البسيط",
-            "detail": "العرض المفصل",
-            "leagues": "الدوريات والمواسم",
-            "fixtures": "المباريات",
-            "deadline": "مواعيد الجولة"
-        }
-        
-        await context.bot.edit_message_text(
-            text=f"🔄 جاري تحميل {loading_texts[view_type]} للجولة {gameweek}...",
-            chat_id=chat_id, message_id=message_id, reply_markup=None
-        )
-        
-        info = get_manager_info(manager_id)
-        if not info:
+            
             await context.bot.edit_message_text(
-                text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                text=f"🔄 جاري تحميل {loading_texts[view_type]} للجولة {gameweek}...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            if view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+            else:
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text_map = {
+                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
+                }
+                text = text_map.get(view_type, "")
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
             )
             return
         
-        if view_type == "deadline":
-            text = format_deadline_display(manager_id, info, gameweek)
-        else:
-            picks_data = get_manager_picks(manager_id, gameweek)
-            history = get_manager_history(manager_id)
-            text_map = {
-                "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
-            }
-            text = text_map.get(view_type, "")
-        
-        await context.bot.edit_message_text(
-            text=text, chat_id=chat_id, message_id=message_id,
-            parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
-        )
-        return
-    
-    # ============================================================
-    # إذا لم يطابق أي من الشروط السابقة
-    # ============================================================
-    logger.warning(f"⚠️ Callback غير معروف: {data}")
-    await context.bot.edit_message_text(
-        text="❌ حدث خطأ: أمر غير معروف. يرجى المحاولة مرة أخرى.",
-        chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-    )
-
+    except Exception as e:
+        logger.error(f"خطأ في معالجة callback: {e}")
+        try:
+            await context.bot.edit_message_text(
+                text=f"❌ حدث خطأ أثناء تحميل البيانات: {str(e)[:100]}\n\nيرجى المحاولة مرة أخرى بإرسال معرف المدرب.",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+            )
+        except Exception as edit_error:
+            logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
 
 # ============================================================
 # تشغيل البوت
 # ============================================================
 
+def get_all_players_data():
+    """جلب جميع اللاعبين مع مراكزهم وأسعارهم ونقاطهم"""
+    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_all_players_data")
+    players_list = []
+    
+    if data and "elements" in data:
+        for player in data["elements"]:
+            # تطبيق التعديلات اليدوية للمراكز من الموسم الجديد
+            player_id = player["id"]
+            if player_id in POSITION_OVERRIDES_26_27:
+                new_pos, _ = POSITION_OVERRIDES_26_27[player_id]
+                player["element_type"] = new_pos
+            
+            # تأكد من تحويل القيم إلى أرقام
+            try:
+                total_points = int(player.get("total_points", 0))
+            except (ValueError, TypeError):
+                total_points = 0
+                
+            try:
+                price = float(player.get("now_cost", 0)) / 10
+            except (ValueError, TypeError):
+                price = 0.0
+                
+            try:
+                selected_by = float(player.get("selected_by_percent", 0))
+            except (ValueError, TypeError):
+                selected_by = 0.0
+                
+            try:
+                form = float(player.get("form", 0))
+            except (ValueError, TypeError):
+                form = 0.0
+            
+            players_list.append({
+                "id": player["id"],
+                "name": f"{player['first_name']} {player['second_name']}",
+                "position": player.get("element_type", 0),
+                "price": price,
+                "total_points": total_points,
+                "team": player.get("team", 0),
+                "selected_by": selected_by,
+                "form": form
+            })
+    
+    # ترتيب اللاعبين حسب النقاط (تنازلي) - تأكد من أن total_points رقم
+    players_list.sort(key=lambda x: x["total_points"] if isinstance(x["total_points"], (int, float)) else 0, reverse=True)
+    logger.info(f"👥 تم تحميل {len(players_list)} لاعب مع بياناتهم الكاملة")
+    return players_list
+    
 # ==========================================
 players_dict = get_players_dict()
 current_gameweek = get_current_gameweek()
@@ -1601,7 +1502,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
 
 
