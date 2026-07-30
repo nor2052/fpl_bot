@@ -25,6 +25,7 @@ if not BOT_TOKEN:
 print("BOT_TOKEN exists:", "BOT_TOKEN" in os.environ)
 # لا تطبع التوكن نفسه في السجلات للأمان
 BASE_URL = "https://fantasy.premierleague.com/api"
+CHANNEL_ID = "@Fantasypremierlea" 
 
 POSITION_OVERRIDES_26_27 = {
     # id: (المركز الجديد, الاسم الكامل)
@@ -54,6 +55,22 @@ def sanitize_markdown(text):
     for char in dangerous_chars:
         text = text.replace(char, f'\\{char}')
     return text
+
+async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    try:
+        # محاولة جلب معلومات عضو القناة
+        chat_member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        
+        # الحالات التي تعني أن المستخدم مشترك
+        if chat_member.status in ["member", "administrator", "creator"]:
+            return True
+        else:
+            return False
+    except Exception as e:
+        logger.error(f"خطأ في التحقق من اشتراك المستخدم {user_id}: {e}")
+        # إذا حدث خطأ (مثل البوت ليس مشرفاً في القناة)، نسمح بالدخول مؤقتاً
+        # لكن ينصح بجعل البوت مشرفاً في القناة
+        return True
 
 def safe_api_request(url, debug_name="API Request"):
     """تنفيذ طلب API بأمان مع إعادة المحاولة"""
@@ -973,11 +990,52 @@ def get_players_buttons(manager_id, gameweek, page, total_pages):
     keyboard.append([InlineKeyboardButton("🔙 العودة للصفحة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
     
     return InlineKeyboardMarkup(keyboard)
+
+
+def get_subscription_button():
+    """
+    زر للاشتراك في القناة
+    عند الضغط عليه يفتح القناة مباشرة في تطبيق تليجرام
+    """
+    # إزالة @ من اسم القناة إذا وجدت للحصول على الرابط الصحيح
+    channel_link = CHANNEL_ID
+    if channel_link.startswith('@'):
+        channel_link = channel_link[1:]  # إزالة @
     
+    keyboard = [
+        [InlineKeyboardButton("📢 اشترك في القناة", url=f"https://t.me/{channel_link}")],
+        [InlineKeyboardButton("✅ تم الاشتراك - تحقق مرة أخرى", callback_data="check_subscription")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
+    user_id = update.effective_user.id
     
+    # ============================================================
+    # أوامر /start و /help - نتحقق من الاشتراك أولاً
+    # ============================================================
     if message_text.startswith(('/start', '/help')):
+        # التحقق من الاشتراك قبل عرض رسالة الترحيب
+        is_subscribed = await check_subscription(context, user_id)
+        
+        if not is_subscribed:
+            # المستخدم غير مشترك - عرض رسالة الاشتراك الإجباري مع زر
+            await update.message.reply_text(
+                f"🔒 **يرجى الاشتراك في القناة أولاً!**\n\n"
+                f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قناتنا:\n"
+                f"📢 {CHANNEL_ID}\n\n"
+                f"✅ **خطوات الاشتراك:**\n"
+                f"1️⃣ اضغط على زر 'اشترك في القناة' أدناه\n"
+                f"2️⃣ انضم إلى القناة\n"
+                f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'\n\n"
+                f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في القناة.",
+                parse_mode='Markdown',
+                reply_markup=get_subscription_button()
+            )
+            return
+        
+        # المستخدم مشترك - عرض رسالة الترحيب
         await update.message.reply_text(
             "🎮 **بوت مساعد الفانتاسي**\n"
             "✨ **كيف يعمل؟**\n"
@@ -1001,6 +1059,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # ============================================================
+    # أي رسالة أخرى (غير /start و /help) - نتحقق من الاشتراك
+    # ============================================================
+    is_subscribed = await check_subscription(context, user_id)
+    
+    if not is_subscribed:
+        await update.message.reply_text(
+            f"🔒 **يرجى الاشتراك في القناة أولاً!**\n\n"
+            f"📢 {CHANNEL_ID}\n\n"
+            f"✅ بعد الاشتراك، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+            parse_mode='Markdown',
+            reply_markup=get_subscription_button()
+        )
+        return
+    
+    # ============================================================
+    # معالجة معرف المدرب (المستخدم مشترك)
+    # ============================================================
     try:
         manager_id = int(message_text)
         context.user_data['current_manager_id'] = manager_id
@@ -1035,13 +1111,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = get_buttons(manager_id, start_gameweek, "simple")
     
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
-
+    
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
         await query.answer()
     except Exception as e:
         logger.error(f"فشل في answer callback: {e}")
+    
+    # ========== التحقق من الاشتراك قبل أي إجراء ==========
+    user_id = update.effective_user.id
+    is_subscribed = await check_subscription(context, user_id)
+    
+    if not is_subscribed:
+        await context.bot.edit_message_text(
+            text=f"🔒 **يرجى الاشتراك في القناة أولاً!**\n\n"
+                 f"📢 {CHANNEL_ID}\n\n"
+                 f"✅ بعد الاشتراك، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            parse_mode='Markdown',
+            reply_markup=get_subscription_button()
+        )
+        return
+    # ======================================================
     
     data = query.data
     chat_id = query.message.chat_id
@@ -1064,6 +1157,41 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     
     try:
+        # ============================================================
+        # معالجة زر "تم الاشتراك - تحقق مرة أخرى"
+        # ============================================================
+        if parts[0] == "check":
+            # إعادة التحقق من الاشتراك
+            is_subscribed = await check_subscription(context, user_id)
+            
+            if is_subscribed:
+                # المستخدم مشترك الآن - نعرض له الأزرار
+                await context.bot.edit_message_text(
+                    text="✅ **تم التحقق من اشتراكك!**\n\n"
+                         "الآن يمكنك استخدام البوت. أرسل معرف المدرب للبدء.\n"
+                         "أو استخدم الأزرار أدناه.",
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    parse_mode='Markdown',
+                    reply_markup=get_buttons(manager_id, current_gameweek, "simple")
+                )
+            else:
+                # المستخدم لا يزال غير مشترك
+                await context.bot.edit_message_text(
+                    text=f"❌ **لم يتم العثور على اشتراكك بعد.**\n\n"
+                         f"يرجى الانضمام إلى القناة أولاً:\n"
+                         f"📢 {CHANNEL_ID}\n\n"
+                         f"📌 **خطوات الاشتراك:**\n"
+                         f"1️⃣ اضغط على زر 'اشترك في القناة'\n"
+                         f"2️⃣ انضم إلى القناة\n"
+                         f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'",
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    parse_mode='Markdown',
+                    reply_markup=get_subscription_button()
+                )
+            return
+        
         # ============================================================
         # معالجة زر اللاعبين
         # ============================================================
@@ -1202,7 +1330,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
             )
         except Exception as edit_error:
-            logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")            
+            logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
+            
 # ============================================================
 # تشغيل البوت
 # ============================================================
