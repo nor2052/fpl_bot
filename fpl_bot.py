@@ -1165,18 +1165,55 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_subscribed = await check_subscription(context, user_id)
             
             if is_subscribed:
-                # المستخدم مشترك الآن - نعرض له الأزرار
-                await context.bot.edit_message_text(
-                    text="✅ **تم التحقق من اشتراكك!**\n\n"
-                         "الآن يمكنك استخدام البوت. أرسل معرف المدرب للبدء.\n"
-                         "أو استخدم الأزرار أدناه.",
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    parse_mode='Markdown',
-                    reply_markup=get_buttons(manager_id, current_gameweek, "simple")
+                # ✅ المستخدم مشترك الآن - نحذف رسالة الاشتراك ونرسل رسالة الترحيب
+                
+                # 1. حذف رسالة الاشتراك القديمة
+                try:
+                    await context.bot.delete_message(
+                        chat_id=chat_id,
+                        message_id=message_id
+                    )
+                except Exception as e:
+                    logger.error(f"فشل في حذف رسالة الاشتراك: {e}")
+                    # إذا فشل الحذف، نقوم بتعديلها بدلاً من ذلك
+                    await context.bot.edit_message_text(
+                        text="✅ **تم التحقق من اشتراكك!**\n\nأرسل معرف المدرب للبدء.",
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        parse_mode='Markdown'
+                    )
+                    return
+                
+                # 2. إرسال رسالة الترحيب الجديدة
+                welcome_text = (
+                    "🎮 **بوت مساعد الفانتاسي**\n"
+                    "✨ **كيف يعمل؟**\n"
+                    "• أرسل **رقم معرف المدرب**\n"
+                    "• سأعرض لك بيانات الجولة الحالية تلقائياً\n\n"
+                    "📊 **البيانات المتاحة**\n"
+                    "✓ نقاط الجولة للمدرب\n"
+                    "✓ النقاط الكلية والترتيب العالمي\n"
+                    "✓ نقاط كل لاعب في الفريق\n"
+                    "✓ نقاط القائد\n"
+                    "✓ قيمة الفريق والبنك 💰\n"
+                    "✓ ترتيب المدرب في كل دوري\n"
+                    "✓ تاريخ المواسم السابقة\n"
+                    "✓ نتائج المباريات وتفاصيلها ⚽\n"
+                    "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات \n"
+                    "🔑 **كيف تحصل على معرف مدرب؟**\n"
+                    "افتح موقع FPL، الرقم في الرابط:\n"
+                    "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
+                    "📝 **مثال:** أرسل `2794801`"
                 )
+                
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=welcome_text,
+                    parse_mode='Markdown'
+                )
+                
             else:
-                # المستخدم لا يزال غير مشترك
+                # ❌ المستخدم لا يزال غير مشترك - نبقى في نفس الرسالة
                 await context.bot.edit_message_text(
                     text=f"❌ **لم يتم العثور على اشتراكك بعد.**\n\n"
                          f"يرجى الانضمام إلى القناة أولاً:\n"
