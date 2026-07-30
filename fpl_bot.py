@@ -1378,16 +1378,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
     
-    # ============================================================
-    # معالجة أزرار ترتيب اللاعبين (جديد)
+        # ============================================================
+    # معالجة أزرار ترتيب اللاعبين
     # ============================================================
     if parts[0] == "players_sort":
         # التنسيق: players_sort_{manager_id}_{gameweek}_{sort_by}_{page}
         gameweek = int(parts[2])
         sort_by = parts[3]  # points, price, ownership
-        page = int(parts[4]) if len(parts) > 4 else 0
         
-        logger.info(f"📊 تغيير الترتيب إلى: {sort_by} للصفحة {page}")
+        # ✅ دائماً نبدأ من الصفحة الأولى عند تغيير الترتيب
+        page = 0
+        
+        logger.info(f"📊 تغيير الترتيب إلى: {sort_by} (العودة للصفحة الأولى)")
         
         await context.bot.edit_message_text(
             text=f"🔄 جاري ترتيب اللاعبين حسب {sort_by}...",
@@ -1406,7 +1408,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         all_players = get_all_players_data(sort_by)
         total_pages = (len(all_players) + 19) // 20  # 20 لاعب في الصفحة
         
-        # التأكد من أن الصفحة الحالية ضمن النطاق
+        # التأكد من أن الصفحة 0 ضمن النطاق
+        if total_pages <= 0:
+            total_pages = 1
         if page >= total_pages:
             page = total_pages - 1
         if page < 0:
