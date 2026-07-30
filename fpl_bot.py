@@ -1378,6 +1378,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # مثال: players_sort_12345_1_points_0
         gameweek = int(parts[2])
         sort_by = parts[3]  # points, price, ownership
+        
         # ✅ دائماً نبدأ من الصفحة الأولى عند تغيير الترتيب
         page = 0
         
@@ -1566,6 +1567,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="❌ حدث خطأ: أمر غير معروف. يرجى المحاولة مرة أخرى.",
         chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
     )
+
 
 # ============================================================
 # تشغيل البوت
