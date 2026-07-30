@@ -809,17 +809,32 @@ def format_deadline_display(manager_id, info, gameweek):
     )
     return response
 
-def format_players_display(manager_id, info, gameweek, page=0):
+
+def format_players_display(manager_id, info, gameweek, page=0, sort_by="points"):
     """
     عرض جميع اللاعبين مع ترقيم الصفحات
     كل صفحة تعرض 20 لاعب
+    sort_by: "points" أو "price"
     """
     name = sanitize_markdown(safe_str(info.get("name")))
     players_per_page = 20
     
     all_players = get_all_players_data()
+    
+    # ترتيب اللاعبين حسب المطلوب
+    if sort_by == "price":
+        all_players.sort(key=lambda x: float(x.get("price", 0)), reverse=True)
+    else:  # sort_by == "points" (الافتراضي)
+        all_players.sort(key=lambda x: int(x.get("total_points", 0)), reverse=True)
+    
     total_players = len(all_players)
     total_pages = (total_players + players_per_page - 1) // players_per_page
+    
+    # التأكد من أن الصفحة ضمن النطاق
+    if page >= total_pages:
+        page = total_pages - 1
+    if page < 0:
+        page = 0
     
     start_idx = page * players_per_page
     end_idx = min(start_idx + players_per_page, total_players)
@@ -829,6 +844,9 @@ def format_players_display(manager_id, info, gameweek, page=0):
     update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
     update_date = now_mecca.strftime("%d/%m/%Y")
     
+    # تحديد نوع الترتيب للعرض
+    sort_label = "النقاط" if sort_by == "points" else "السعر"
+    
     response = (
         f"👥 **جميع لاعبي الدوري الإنجليزي**\n"
         f"👤 {name}\n"
@@ -837,6 +855,7 @@ def format_players_display(manager_id, info, gameweek, page=0):
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 الصفحة {page + 1} من {total_pages}\n"
         f"👥 إجمالي اللاعبين: {total_players}\n"
+        f"📌 الترتيب حسب: **{sort_label}** (من الأعلى للأقل)\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     
@@ -872,12 +891,12 @@ def format_players_display(manager_id, info, gameweek, page=0):
             form = float(player.get("form", 0))
         except (ValueError, TypeError):
             form = 0.0
-        # ====================================================
         
         price_str = f"£{price:.1f}M" if price > 0 else "غير متاح"
         selected_str = f"{selected:.1f}%" if selected > 0 else "0%"
         form_str = f"{form:.1f}" if form > 0 else "-"
         
+        # إضافة رقم الترتيب
         response += (
             f"{idx:3d}. **{player_name}**\n"
             f"   {pos_name} | {team_short} | السعر: {price_str} | النقاط: {points} | الفورم: {form_str} | الاختيار: {selected_str}\n\n"
@@ -885,7 +904,7 @@ def format_players_display(manager_id, info, gameweek, page=0):
     
     response += "━━━━━━━━━━━━━━━━━━━━━\n"
     response += f"📊 إجمالي اللاعبين المعروضين: {len(page_players)}\n"
-    response += "🔄 استخدم الأزرار أدناه للتنقل بين الصفحات"
+    response += "🔄 استخدم الأزرار أدناه للتنقل والترتيب"
     
     return response
 
@@ -909,41 +928,35 @@ def get_buttons(manager_id, gameweek, current_view):
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_players_buttons(manager_id, gameweek, page, total_pages):
+def get_players_buttons(manager_id, gameweek, page, total_pages, sort_by="points"):
+    """
+    إنشاء أزرار للتنقل بين صفحات اللاعبين مع خيارات الترتيب
+    """
     keyboard = []
     
+    # أزرار الترتيب
+    sort_buttons = []
+    if sort_by == "points":
+        sort_buttons.append(InlineKeyboardButton("⭐ نقاط (حالي)", callback_data=f"players_sort_{manager_id}_{gameweek}_points_{page}"))
+        sort_buttons.append(InlineKeyboardButton("💰 السعر", callback_data=f"players_sort_{manager_id}_{gameweek}_price_{page}"))
+    else:  # sort_by == "price"
+        sort_buttons.append(InlineKeyboardButton("⭐ النقاط", callback_data=f"players_sort_{manager_id}_{gameweek}_points_{page}"))
+        sort_buttons.append(InlineKeyboardButton("💰 سعر (حالي)", callback_data=f"players_sort_{manager_id}_{gameweek}_price_{page}"))
+    
+    keyboard.append(sort_buttons)
+    
+    # أزرار التنقل بين الصفحات
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"players_{manager_id}_{gameweek}_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"players_nav_{manager_id}_{gameweek}_{page-1}_{sort_by}"))
     if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"players_{manager_id}_{gameweek}_{page+1}"))
+        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"players_nav_{manager_id}_{gameweek}_{page+1}_{sort_by}"))
     
     if nav_buttons:
         keyboard.append(nav_buttons)
     
+    # زر العودة للصفحة الرئيسية
     keyboard.append([InlineKeyboardButton("🔙 العودة للصفحة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
-    
-    return InlineKeyboardMarkup(keyboard)
-
-def get_subscription_button():
-    keyboard = []
-    
-    for channel in CHANNELS:
-        channel_id = channel["id"]
-        channel_name = channel.get("name", channel_id)
-        channel_link = channel_id
-        if channel_link.startswith('@'):
-            channel_link = channel_link[1:]
-        
-        keyboard.append([InlineKeyboardButton(
-            f"📢 اشترك في {channel_name}",
-            url=f"https://t.me/{channel_link}"
-        )])
-    
-    keyboard.append([InlineKeyboardButton(
-        "✅ تم الاشتراك - تحقق مرة أخرى",
-        callback_data="check_subscription"
-    )])
     
     return InlineKeyboardMarkup(keyboard)
 
@@ -1166,9 +1179,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
+        # ===== قسم معالجة اللاعبين =====
         if parts[0] == "players":
+            # تنسيق: players_{manager_id}_{gameweek}_{page}
             gameweek = int(parts[2])
             page = int(parts[3]) if len(parts) > 3 else 0
+            sort_by = "points"  # الافتراضي
             
             await context.bot.edit_message_text(
                 text=f"🔄 جاري تحميل قائمة اللاعبين - الصفحة {page + 1}...",
@@ -1186,8 +1202,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             all_players = get_all_players_data()
             total_pages = (len(all_players) + 19) // 20
             
-            text = format_players_display(manager_id, info, gameweek, page)
-            reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages)
+            text = format_players_display(manager_id, info, gameweek, page, sort_by)
+            reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
             
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
@@ -1195,6 +1211,71 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
+        # ===== قسم ترتيب اللاعبين =====
+        elif parts[0] == "players_sort":
+            # تنسيق: players_sort_{manager_id}_{gameweek}_{sort_by}_{page}
+            gameweek = int(parts[2])
+            sort_by = parts[3]
+            page = int(parts[4]) if len(parts) > 4 else 0
+            
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري ترتيب اللاعبين حسب { 'النقاط' if sort_by == 'points' else 'السعر' }...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            all_players = get_all_players_data()
+            total_pages = (len(all_players) + 19) // 20
+            
+            text = format_players_display(manager_id, info, gameweek, page, sort_by)
+            reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+        
+        # ===== قسم التنقل بين صفحات اللاعبين =====
+        elif parts[0] == "players_nav":
+            # تنسيق: players_nav_{manager_id}_{gameweek}_{page}_{sort_by}
+            gameweek = int(parts[2])
+            page = int(parts[3])
+            sort_by = parts[4] if len(parts) > 4 else "points"
+            
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري تحميل الصفحة {page + 1}...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            all_players = get_all_players_data()
+            total_pages = (len(all_players) + 19) // 20
+            
+            text = format_players_display(manager_id, info, gameweek, page, sort_by)
+            reply_markup = get_players_buttons(manager_id, gameweek, page, total_pages, sort_by)
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+        
+        # ===== باقي الأقسام (تظل كما هي) =====
         elif parts[0] == "nav":
             gameweek = int(parts[2])
             current_text = query.message.text
@@ -1295,7 +1376,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as edit_error:
             logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
-
+            
 # ============================================================
 # تشغيل البوت
 # ============================================================
