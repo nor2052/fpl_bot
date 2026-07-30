@@ -246,6 +246,7 @@ def get_players_dict():
     logger.info(f"👥 تم تحميل {len(players)} لاعب")
     return players
 
+
 def get_all_players_data(sort_by="points", force_refresh=False):
     """
     جلب جميع اللاعبين مع مراكزهم وأسعارهم ونقاطهم
@@ -331,7 +332,7 @@ def get_all_players_data(sort_by="points", force_refresh=False):
         sorted_list.sort(key=lambda x: x["total_points"], reverse=True)
     
     return sorted_list
-    
+
 def get_fixtures(gameweek=None):
     if gameweek:
         url = f"{BASE_URL}/fixtures/?event={gameweek}"
@@ -987,7 +988,7 @@ def format_players_display(manager_id, info, gameweek, page=0, sort_by="points")
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 الصفحة {page + 1} من {total_pages}\n"
         f"👥 إجمالي اللاعبين: {total_players}\n"
-        f"📌 مرتب حسب: {sort_display}\n"
+        f"📌 مرتب حسب: {sort_display}\n"  # ✅ إضافة عرض نوع الترتيب
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     
@@ -1036,6 +1037,7 @@ def format_players_display(manager_id, info, gameweek, page=0, sort_by="points")
     
     return response
 
+
 # ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
@@ -1055,7 +1057,7 @@ def get_buttons(manager_id, gameweek, current_view):
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
     return InlineKeyboardMarkup(keyboard)
-    
+
 def get_players_buttons(manager_id, gameweek, page, total_pages, current_sort="points"):
     """
     أزرار خاصة بعرض اللاعبين مع التنقل بين الصفحات وزر الرجوع وأزرار الترتيب
@@ -1099,7 +1101,7 @@ def get_players_buttons(manager_id, gameweek, page, total_pages, current_sort="p
     keyboard.append([InlineKeyboardButton("🔙 العودة للصفحة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
     
     return InlineKeyboardMarkup(keyboard)
-    
+
 def get_subscription_button():
     keyboard = []
     
@@ -1373,9 +1375,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ============================================================
     if parts[0] == "players_sort":
         # التنسيق: players_sort_{manager_id}_{gameweek}_{sort_by}_{page}
+        # مثال: players_sort_12345_1_points_0
         gameweek = int(parts[2])
         sort_by = parts[3]  # points, price, ownership
-        
         # ✅ دائماً نبدأ من الصفحة الأولى عند تغيير الترتيب
         page = 0
         
@@ -1419,6 +1421,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # معالجة زر اللاعبين
     # ============================================================
     if parts[0] == "players":
+        # التنسيق: players_{manager_id}_{gameweek}_{page}_{sort_by}
+        # مثال: players_12345_1_0_points
         gameweek = int(parts[2])
         page = int(parts[3]) if len(parts) > 3 else 0
         sort_by = parts[4] if len(parts) > 4 else "points"
@@ -1459,6 +1463,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # معالجة التنقل بين الجولات
     # ============================================================
     if parts[0] == "nav":
+        # التنسيق: nav_{manager_id}_{gameweek}
         gameweek = int(parts[2])
         current_text = query.message.text
         
@@ -1509,6 +1514,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # معالجة الأزرار الأخرى (simple, detail, leagues, fixtures, deadline)
     # ============================================================
     if parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
+        # التنسيق: {view_type}_{manager_id}_{gameweek}
         view_type = parts[0]
         gameweek = int(parts[2])
         
@@ -1560,7 +1566,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="❌ حدث خطأ: أمر غير معروف. يرجى المحاولة مرة أخرى.",
         chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
     )
-
 
 # ============================================================
 # تشغيل البوت
