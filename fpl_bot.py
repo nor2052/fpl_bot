@@ -810,6 +810,10 @@ def format_deadline_display(manager_id, info, gameweek):
     return response
 
 def format_players_display(manager_id, info, gameweek, page=0):
+    """
+    عرض جميع اللاعبين مع ترقيم الصفحات
+    كل صفحة تعرض 20 لاعب
+    """
     name = sanitize_markdown(safe_str(info.get("name")))
     players_per_page = 20
     
@@ -843,21 +847,35 @@ def format_players_display(manager_id, info, gameweek, page=0):
     for idx, player in enumerate(page_players, start=start_idx + 1):
         player_name = sanitize_markdown(player['name'])
         
-        pos_id = player["position"]
+        pos_id = player.get("position", 0)
         pos_name = POSITION_NAMES.get(pos_id, "❓ غير معروف")
         
-        price = player["price"]
-        price_str = f"£{price:.1f}M" if price > 0 else "غير متاح"
+        try:
+            price = float(player.get("price", 0))
+        except (ValueError, TypeError):
+            price = 0.0
         
-        points = player["total_points"]
+        try:
+            points = int(player.get("total_points", 0))
+        except (ValueError, TypeError):
+            points = 0
         
         team_id = player.get("team", 0)
         team_short = TEAM_NAMES.get(team_id, "???")
         
-        selected = player.get("selected_by", 0)
-        selected_str = f"{selected:.1f}%" if selected > 0 else "0%"
+        try:
+            selected = float(player.get("selected_by", 0))
+        except (ValueError, TypeError):
+            selected = 0.0
         
-        form = player.get("form", 0)
+        try:
+            form = float(player.get("form", 0))
+        except (ValueError, TypeError):
+            form = 0.0
+        # ====================================================
+        
+        price_str = f"£{price:.1f}M" if price > 0 else "غير متاح"
+        selected_str = f"{selected:.1f}%" if selected > 0 else "0%"
         form_str = f"{form:.1f}" if form > 0 else "-"
         
         response += (
