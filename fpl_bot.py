@@ -35,16 +35,7 @@ POSITION_OVERRIDES_26_27 = {}
 # ============================================================
 
 def safe_int(value):
-    try:
-        return int(value) if value is not None else 0
-    except (ValueError, TypeError):
-        return 0
-
-def safe_float(value):
-    try:
-        return float(value) if value is not None else 0.0
-    except (ValueError, TypeError):
-        return 0.0
+    return int(value) if value is not None else 0
 
 def safe_str(value):
     return str(value) if value is not None else "غير معروف"
@@ -163,7 +154,7 @@ def get_live_points(gameweek):
     live_points = {}
     if data and "elements" in data:
         for element in data["elements"]:
-            points = safe_int(element.get("stats", {}).get("total_points", 0))
+            points = element.get("stats", {}).get("total_points", 0)
             live_points[element["id"]] = points
     return live_points
 
@@ -177,12 +168,12 @@ def get_full_live_data(gameweek):
             player_id = element["id"]
             stats = element.get("stats", {})
             
-            clearances = safe_int(stats.get('clearances', 0))
-            blocks = safe_int(stats.get('blocks', 0))
-            interceptions = safe_int(stats.get('interceptions', 0))
-            tackles = safe_int(stats.get('tackles', 0))
-            recoveries = safe_int(stats.get('recoveries', 0))
-            cbi = safe_int(stats.get('clearances_blocks_interceptions', 0))
+            clearances = stats.get('clearances', 0)
+            blocks = stats.get('blocks', 0)
+            interceptions = stats.get('interceptions', 0)
+            tackles = stats.get('tackles', 0)
+            recoveries = stats.get('recoveries', 0)
+            cbi = stats.get('clearances_blocks_interceptions', 0)
             
             if cbi > 0:
                 cbit_total = cbi + tackles
@@ -235,12 +226,12 @@ def get_all_players_data(sort_by="points"):
             players_list.append({
                 "id": player["id"],
                 "name": f"{player['first_name']} {player['second_name']}",
-                "position": safe_int(player.get("element_type", 0)),
-                "price": safe_float(player.get("now_cost", 0)) / 10,
-                "total_points": safe_int(player.get("total_points", 0)),
-                "team": safe_int(player.get("team", 0)),
-                "selected_by": safe_float(player.get("selected_by_percent", 0)),
-                "form": safe_float(player.get("form", 0))
+                "position": player.get("element_type", 0),
+                "price": player.get("now_cost", 0) / 10,
+                "total_points": player.get("total_points", 0),
+                "team": player.get("team", 0),
+                "selected_by": player.get("selected_by_percent", 0),
+                "form": player.get("form", 0)
             })
     
     # الفرز حسب المعيار المطلوب
@@ -252,81 +243,6 @@ def get_all_players_data(sort_by="points"):
     logger.info(f"👥 تم تحميل {len(players_list)} لاعب مرتبين حسب ({sort_by})")
     return players_list
 
-def get_price_change_data():
-    """
-    جلب بيانات تغيرات الأسعار من bootstrap-static
-    """
-    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_change_data")
-    
-    price_changes = {
-        "expected_rises": [],      # متوقع ارتفاعهم
-        "expected_falls": [],      # متوقع انخفاضهم
-        "actual_rises": [],        # ارتفع سعرهم فعلاً
-        "actual_falls": []         # انخفض سعرهم فعلاً
-    }
-    
-    if data and "elements" in data:
-        for player in data["elements"]:
-            player_data = {
-                "id": player["id"],
-                "name": f"{player['first_name']} {player['second_name']}",
-                "price": safe_float(player.get("now_cost", 0)) / 10,
-                "selected_by": safe_float(player.get("selected_by_percent", 0)),
-                "form": safe_float(player.get("form", 0)),
-                "total_points": safe_int(player.get("total_points", 0))
-            }
-            
-            # نسبة التغيير المتوقع (هذه قيمة وهمية لأن API لا يوفرها مباشرة)
-            # نستخدم الفورم كنسبة تقريبية للتغيير المتوقع
-            form = safe_float(player.get("form", 0))
-            selected = safe_float(player.get("selected_by_percent", 0))
-            
-            # محاكاة نسبة التغيير المتوقع بناءً على الفورم والملكية
-            expected_change = (form * 0.5 + selected * 0.3) / 10
-            
-            # تحقق من التغييرات الفعلية
-            # في الواقع API لا يوفر تغيرات الأسعار مباشرة، لكننا نستخدم البيانات المتاحة
-            # سنقوم بمحاكاة بناءً على النقاط والفورم
-            total_points = safe_int(player.get("total_points", 0))
-            
-            if form > 5 and selected < 20:
-                # لاعب في فورم جيد وملكية منخفضة -> متوقع ارتفاع
-                price_change_actual = 0
-                if total_points > 50:
-                    price_change_actual = 0.1  # محاكاة
-                
-                if price_change_actual > 0:
-                    player_data["change_percent"] = expected_change
-                    player_data["price_change"] = price_change_actual
-                    price_changes["expected_rises"].append(player_data)
-                elif price_change_actual < 0:
-                    player_data["change_percent"] = expected_change
-                    player_data["price_change"] = price_change_actual
-                    price_changes["expected_falls"].append(player_data)
-            
-            # محاكاة للتغييرات الفعلية (سنأخذ عينة عشوائية)
-            # في الواقع يجب جلب هذه البيانات من مصدر آخر
-            if total_points > 60 and selected < 15:
-                player_data["price_change"] = 0.2
-                price_changes["actual_rises"].append(player_data)
-            elif total_points < 20 and selected > 30:
-                player_data["price_change"] = -0.2
-                price_changes["actual_falls"].append(player_data)
-    
-    # ترتيب القوائم
-    price_changes["expected_rises"].sort(key=lambda x: x.get("change_percent", 0), reverse=True)
-    price_changes["expected_falls"].sort(key=lambda x: x.get("change_percent", 0), reverse=True)
-    price_changes["actual_rises"].sort(key=lambda x: x.get("price_change", 0), reverse=True)
-    price_changes["actual_falls"].sort(key=lambda x: x.get("price_change", 0))
-    
-    # أخذ أول 5 فقط
-    price_changes["expected_rises"] = price_changes["expected_rises"][:5]
-    price_changes["expected_falls"] = price_changes["expected_falls"][:5]
-    price_changes["actual_rises"] = price_changes["actual_rises"][:5]
-    price_changes["actual_falls"] = price_changes["actual_falls"][:5]
-    
-    logger.info(f"📊 تم جلب بيانات تغيرات الأسعار: {len(price_changes['expected_rises'])} متوقع ارتفاع, {len(price_changes['expected_falls'])} متوقع انخفاض")
-    return price_changes
 
 def get_fixtures(gameweek=None):
     if gameweek:
@@ -439,7 +355,7 @@ def format_match_time(kickoff_time):
 def format_match_status(fixture):
     started = fixture.get("started", False)
     finished = fixture.get("finished", False) or fixture.get("finished_provisional", False)
-    minutes = safe_int(fixture.get("minutes", 0))
+    minutes = fixture.get("minutes", 0)
     
     if finished:
         return "🔴 انتهت"
@@ -456,8 +372,8 @@ def get_gameweek_stats(gameweek):
         for event in data["events"]:
             if event.get("id") == gameweek:
                 return {
-                    "average_score": safe_int(event.get("average_entry_score", 0)),
-                    "highest_score": safe_int(event.get("highest_score", 0))
+                    "average_score": event.get("average_entry_score", 0),
+                    "highest_score": event.get("highest_score", 0)
                 }
     return {"average_score": 0, "highest_score": 0}
 
@@ -492,7 +408,7 @@ def format_simple_display(manager_id, info, gameweek, picks_data, history):
         players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
         for pick in players_to_count:
             player_id = pick.get("element")
-            player_points = safe_int(live_points_map.get(player_id, 0))
+            player_points = live_points_map.get(player_id, 0)
             current_multiplier = pick.get("multiplier", 1)
             if pick.get("is_captain"):
                 current_multiplier = 3 if active_chip == "3xc" else 2
@@ -577,7 +493,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_full_data")
     if bootstrap_data and "elements" in bootstrap_data:
         for player in bootstrap_data["elements"]:
-            players_full_data[player["id"]] = {"element_type": safe_int(player.get("element_type"))}
+            players_full_data[player["id"]] = {"element_type": player.get("element_type")}
     
     position_names = {1: "🥅 الحراسة", 2: "🪖 الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
     
@@ -587,37 +503,27 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
         e_type = players_full_data.get(p_id, {}).get("element_type", 0)
         
         def_earned, _, _ = get_defensive_contribution_status(p_id, e_type, full_live_data)
-        total_api = safe_int(stats.get('total_points', 0))
+        total_api = stats.get('total_points', 0)
         final_display_pts = total_api * multiplier
         
         events = []
-        goals = safe_int(stats.get('goals_scored', 0))
-        assists = safe_int(stats.get('assists', 0))
-        clean_sheets = safe_int(stats.get('clean_sheets', 0))
-        saves = safe_int(stats.get('saves', 0))
-        yellow_cards = safe_int(stats.get('yellow_cards', 0))
-        red_cards = safe_int(stats.get('red_cards', 0))
-        own_goals = safe_int(stats.get('own_goals', 0))
-        penalties_missed = safe_int(stats.get('penalties_missed', 0))
-        penalties_saved = safe_int(stats.get('penalties_saved', 0))
-        
-        if goals > 0:
-            events.append("⚽" * goals)
-        if assists > 0:
-            events.append("🅰️" * assists)
-        if clean_sheets > 0 and e_type in [1, 2, 3]:
+        if stats.get('goals_scored', 0) > 0:
+            events.append("⚽" * stats['goals_scored'])
+        if stats.get('assists', 0) > 0:
+            events.append("🅰️" * stats['assists'])
+        if stats.get('clean_sheets', 0) > 0 and e_type in [1, 2, 3]:
             events.append("🛡️")
-        if saves >= 3:
-            events.append(f"🧤({saves})")
-        if yellow_cards > 0:
+        if stats.get('saves', 0) >= 3:
+            events.append(f"🧤({stats.get('saves', 0)})")
+        if stats.get('yellow_cards', 0) > 0:
             events.append("🟨")
-        if red_cards > 0:
+        if stats.get('red_cards', 0) > 0:
             events.append("🟥")
-        if own_goals > 0:
+        if stats.get('own_goals', 0) > 0:
             events.append("🚫(OG)")
-        if penalties_missed > 0:
+        if stats.get('penalties_missed', 0) > 0:
             events.append("❌(PK)")
-        if penalties_saved > 0:
+        if stats.get('penalties_saved', 0) > 0:
             events.append("🧤(PK)")
         
         def_icon = " 🧱" if def_earned else ""
@@ -957,12 +863,28 @@ def format_players_display(manager_id, info, gameweek, sort_by="points", page=0)
         pos_id = player.get("position", 0)
         pos_name = POSITION_NAMES.get(pos_id, "❓ غير معروف")
         
-        price = safe_float(player.get("price", 0))
-        points = safe_int(player.get("total_points", 0))
+        try:
+            price = float(player.get("price", 0))
+        except (ValueError, TypeError):
+            price = 0.0
+        
+        try:
+            points = int(player.get("total_points", 0))
+        except (ValueError, TypeError):
+            points = 0
+        
         team_id = player.get("team", 0)
         team_short = TEAM_NAMES.get(team_id, "???")
-        selected = safe_float(player.get("selected_by", 0))
-        form = safe_float(player.get("form", 0))
+        
+        try:
+            selected = float(player.get("selected_by", 0))
+        except (ValueError, TypeError):
+            selected = 0.0
+        
+        try:
+            form = float(player.get("form", 0))
+        except (ValueError, TypeError):
+            form = 0.0
         
         price_str = f"£{price:.1f}M" if price > 0 else "غير متاح"
         selected_str = f"{selected:.1f}%" if selected > 0 else "0%"
@@ -979,89 +901,109 @@ def format_players_display(manager_id, info, gameweek, sort_by="points", page=0)
     
     return response
 
-# ============================================================
-# دوال عرض تغيرات الأسعار
-# ============================================================
-
 def format_price_changes_display(manager_id, info, gameweek):
     """
-    عرض تغيرات الأسعار المتوقعة والحالية
+    عرض توقعات وتغيرات الأسعار للاعبين بناءً على بيانات الرسمية للفانتاسي
     """
     name = sanitize_markdown(safe_str(info.get("name")))
+    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_changes")
     
     now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
     update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
     update_date = now_mecca.strftime("%d/%m/%Y")
+
+    if not data or "elements" not in data:
+        return "❌ حدث خطأ أثناء جلب بيانات الأسعار."
+
+    elements = data["elements"]
     
-    price_data = get_price_change_data()
-    
+    # تحضير قائمة اللاعبين وحساب مقياس التوقع للارتفاع والانخفاض (بناءً على الانتقالات في الجولة)
+    players_list = []
+    for p in elements:
+        transfers_in = safe_int(p.get("transfers_in_event", 0))
+        transfers_out = safe_int(p.get("transfers_out_event", 0))
+        net_transfers = transfers_in - transfers_out
+        
+        p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+        price = safe_int(p.get("now_cost", 0)) / 10.0
+        ownership = safe_str(p.get("selected_by_percent", "0.0"))
+        cost_change = safe_int(p.get("cost_change_event", 0))
+        
+        players_list.append({
+            "name": p_name,
+            "price": price,
+            "ownership": ownership,
+            "net_transfers": net_transfers,
+            "cost_change": cost_change,
+            "transfers_in": transfers_in,
+            "transfers_out": transfers_out
+        })
+
+    # 1. التوقعات (أكثر 5 متوقع ارتفاعهم وأكثر 5 متوقع انخفاضهم)
+    predicted_rise = sorted(players_list, key=lambda x: x["net_transfers"], reverse=True)[:5]
+    predicted_fall = sorted(players_list, key=lambda x: x["net_transfers"])[:5]
+
+    # 2. التغيرات الحقيقية الأخيرة (آخر 5 ارتفعوا وآخر 5 انخفضوا في الجولة الحالية)
+    actual_risen = [p for p in elements if p.get("cost_change_event", 0) > 0]
+    actual_risen = sorted(actual_risen, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
+
+    actual_fallen = [p for p in elements if p.get("cost_change_event", 0) < 0]
+    actual_fallen = sorted(actual_fallen, key=lambda x: x.get("cost_change_event", 0))[:5]
+
     response = (
-        f"📈 **تغيرات أسعار اللاعبين**\n"
+        f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
         f"👤 {name}\n"
         f"📊 **الجولة {gameweek}**\n"
         f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
-    
-    # المتوقع ارتفاعهم
-    response += "📈 **متوقع ارتفاعهم:**\n"
-    if price_data["expected_rises"]:
-        for i, player in enumerate(price_data["expected_rises"], 1):
-            player_name = sanitize_markdown(player["name"])
-            price = safe_float(player.get("price", 0))
-            selected = safe_float(player.get("selected_by", 0))
-            change_pct = safe_float(player.get("change_percent", 0))
-            response += f"{i}. **{player_name}**\n"
-            response += f"   💰 السعر: £{price:.1f}M | الملكية: {selected:.1f}% | التوقع: {change_pct:.1f}%\n\n"
-    else:
-        response += "   لا يوجد لاعبين متوقع ارتفاعهم حالياً\n\n"
-    
-    # المتوقع انخفاضهم
-    response += "📉 **متوقع انخفاضهم:**\n"
-    if price_data["expected_falls"]:
-        for i, player in enumerate(price_data["expected_falls"], 1):
-            player_name = sanitize_markdown(player["name"])
-            price = safe_float(player.get("price", 0))
-            selected = safe_float(player.get("selected_by", 0))
-            change_pct = safe_float(player.get("change_percent", 0))
-            response += f"{i}. **{player_name}**\n"
-            response += f"   💰 السعر: £{price:.1f}M | الملكية: {selected:.1f}% | التوقع: {change_pct:.1f}%\n\n"
-    else:
-        response += "   لا يوجد لاعبين متوقع انخفاضهم حالياً\n\n"
-    
-    response += "━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    # آخر من ارتفع سعرهم
-    response += "🟢 **آخر من ارتفع سعرهم:**\n"
-    if price_data["actual_rises"]:
-        for i, player in enumerate(price_data["actual_rises"], 1):
-            player_name = sanitize_markdown(player["name"])
-            price = safe_float(player.get("price", 0))
-            selected = safe_float(player.get("selected_by", 0))
-            price_change = safe_float(player.get("price_change", 0))
-            response += f"{i}. **{player_name}**\n"
-            response += f"   💰 السعر الحالي: £{price:.1f}M | الملكية: {selected:.1f}% | التغير: +£{price_change:.1f}M\n\n"
-    else:
-        response += "   لا يوجد لاعبين ارتفع سعرهم مؤخراً\n\n"
-    
-    # آخر من انخفض سعرهم
-    response += "🔴 **آخر من انخفض سعرهم:**\n"
-    if price_data["actual_falls"]:
-        for i, player in enumerate(price_data["actual_falls"], 1):
-            player_name = sanitize_markdown(player["name"])
-            price = safe_float(player.get("price", 0))
-            selected = safe_float(player.get("selected_by", 0))
-            price_change = safe_float(player.get("price_change", 0))
-            response += f"{i}. **{player_name}**\n"
-            response += f"   💰 السعر الحالي: £{price:.1f}M | الملكية: {selected:.1f}% | التغير: {price_change:.1f}M\n\n"
-    else:
-        response += "   لا يوجد لاعبين انخفض سعرهم مؤخراً\n\n"
-    
-    response += "━━━━━━━━━━━━━━━━━━━━━\n"
-    response += "📌 ملاحظة: هذه البيانات تقديرية بناءً على أداء اللاعبين"
-    
-    return response
 
+    # 📈 أكثر 5 متوقع ارتفاعهم
+    response += "🚀 **أكثر 5 لاعبين متوقع ارتفاعهم:**\n"
+    for idx, p in enumerate(predicted_rise, 1):
+        # حساب نسبة توقع تقريبية بناءً على زخم الانتقالات
+        prediction_pct = min(100.0, max(0.0, (p["net_transfers"] / 50000.0) * 100))
+        response += (
+            f"{idx}. **{p['name']}**\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 نسبة التوقع: {prediction_pct:.1f}%\n"
+        )
+    response += "\n"
+
+    # 🔻 أكثر 5 متوقع انخفاضهم
+    response += "🔻 **أكثر 5 لاعبين متوقع انخفاضهم:**\n"
+    for idx, p in enumerate(predicted_fall, 1):
+        prediction_pct = min(100.0, max(0.0, (abs(p["net_transfers"]) / 50000.0) * 100))
+        response += (
+            f"{idx}. **{p['name']}**\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 نسبة التوقع: {prediction_pct:.1f}%\n"
+        )
+    response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    # 🟢 آخر 5 لاعبين ارتفع سعرهم بالفعل
+    response += "🟢 **آخر 5 لاعبين ارتفع سعرهم:**\n"
+    if actual_risen:
+        for idx, p in enumerate(actual_risen, 1):
+            p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+            price = safe_int(p.get("now_cost", 0)) / 10.0
+            ownership = safe_str(p.get("selected_by_percent", "0.0"))
+            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
+    else:
+        response += "لا يوجد ارتفاعات في الأسعار مؤخراً\n"
+    response += "\n"
+
+    # 🔴 آخر 5 لاعبين انخفض سعرهم بالفعل
+    response += "🔴 **آخر 5 لاعبين انخفض سعرهم:**\n"
+    if actual_fallen:
+        for idx, p in enumerate(actual_fallen, 1):
+            p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+            price = safe_int(p.get("now_cost", 0)) / 10.0
+            ownership = safe_str(p.get("selected_by_percent", "0.0"))
+            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
+    else:
+        response += "لا يوجد انخفاضات في الأسعار مؤخراً\n"
+
+    return response
+    
 # ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
@@ -1076,8 +1018,8 @@ def get_buttons(manager_id, gameweek, current_view):
         [InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}"),
          InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
-         InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
-        [InlineKeyboardButton("📈 تغيرات الأسعار", callback_data=f"prices_{manager_id}_{gameweek}")],
+         InlineKeyboardButton("📈 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
+        [InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
@@ -1171,7 +1113,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✓ تاريخ المواسم السابقة\n"
             "✓ نتائج المباريات وتفاصيلها ⚽\n"
             "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات \n"
-            "✓ تغيرات الأسعار المتوقعة والحالية 📈\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
             "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
@@ -1228,6 +1169,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = get_buttons(manager_id, start_gameweek, "simple")
     
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
+
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1288,7 +1230,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "✓ نقاط كل لاعب في الفريق ونقاط الكابتن\n"
                 "✓ قائمة أعلى 20 لاعباً نقاطاً أو سعراً 👥\n"
                 "✓ مواعيد الديدلاين والمباريات ⚽\n"
-                "✓ تغيرات الأسعار المتوقعة والحالية 📈\n\n"
+                "✓ توقعات وتغيرات الأسعار 📈\n\n"
                 "📝 **مثال:** أرسل `2794801`"
             )
             await context.bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode='Markdown')
@@ -1318,41 +1260,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
-        # معالجة عرض تغيرات الأسعار
-        if parts[0] == "prices":
-            gameweek = int(parts[2])
-            
-            await context.bot.edit_message_text(
-                text="🔄 جاري تحميل بيانات تغيرات الأسعار...",
-                chat_id=chat_id, message_id=message_id, reply_markup=None
-            )
-            
-            info = get_manager_info(manager_id)
-            if not info:
-                await context.bot.edit_message_text(
-                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
-                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-                )
-                return
-            
-            text = format_price_changes_display(manager_id, info, gameweek)
-            
-            # إضافة زر العودة
-            reply_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
-            ])
-            
-            await context.bot.edit_message_text(
-                text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=reply_markup
-            )
-            return
-        
         # معالجة استدعاء قائمة اللاعبين مع التصفح والفرز
         if parts[0] == "players":
             gameweek = int(parts[2])
             
-            # تحديد نوع الترتيب والصفحة
             if len(parts) == 5:
                 sort_by = parts[3]
                 page = int(parts[4])
@@ -1400,6 +1311,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 view_type = "fixtures"
             elif "المواعيد" in current_text:
                 view_type = "deadline"
+            elif "تغيرات وتوقعات" in current_text:
+                view_type = "price"
             else:
                 view_type = "simple"
             
@@ -1418,6 +1331,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if view_type == "deadline":
                 text = format_deadline_display(manager_id, info, gameweek)
+            elif view_type == "price":
+                text = format_price_changes_display(manager_id, info, gameweek)
             else:
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
@@ -1435,7 +1350,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline"]:
+        elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline", "price"]:
             view_type = parts[0]
             gameweek = int(parts[2])
             
@@ -1444,7 +1359,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "detail": "العرض المفصل",
                 "leagues": "الدوريات والمواسم",
                 "fixtures": "المباريات",
-                "deadline": "مواعيد الجولة"
+                "deadline": "مواعيد الجولة",
+                "price": "توقعات وتغيرات الأسعار"
             }
             
             await context.bot.edit_message_text(
@@ -1462,6 +1378,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if view_type == "deadline":
                 text = format_deadline_display(manager_id, info, gameweek)
+            elif view_type == "price":
+                text = format_price_changes_display(manager_id, info, gameweek)
             else:
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
@@ -1504,7 +1422,7 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
     
     print("=" * 50)
-    print("🤖 البوت يعمل الآن (الإصدار مع تغيرات الأسعار)")
+    print("🤖 البوت يعمل الآن (الإصدار مع زر المواعيد)")
     print(f"📅 آخر جولة لعبت: {current_gameweek}")
     print("✅ المميزات:")
     print("   • عرض بسيط ومفصل للمدربين")
@@ -1512,7 +1430,6 @@ def main():
     print("   • حالة البطاقات مع تقسيم الموسم لنصفين")
     print("   • عرض المباريات بنتائج وتفاصيل")
     print("   • مواعيد الجولة (الديدلاين) ⏰")
-    print("   • تغيرات الأسعار المتوقعة والحالية 📈")
     print("   • توقيت مكة المكرمة حصراً")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
