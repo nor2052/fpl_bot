@@ -243,6 +243,216 @@ def get_all_players_data(sort_by="points"):
     logger.info(f"👥 تم تحميل {len(players_list)} لاعب مرتبين حسب ({sort_by})")
     return players_list
 
+# ============================================================
+# دوال توقعات الأسعار
+# ============================================================
+
+def get_price_change_predictions():
+    """
+    جلب توقعات تغيرات الأسعار من API
+    """
+    url = "https://fantasy.premierleague.com/api/entry/1/"
+    try:
+        response = requests.get(url, timeout=30, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        logger.warning(f"خطأ في جلب توقعات الأسعار: {e}")
+    return None
+
+def get_price_change_data():
+    """
+    تحليل بيانات اللاعبين لحساب توقعات تغيرات الأسعار
+    بناءً على نسبة الملكية والنقلات الواردة والصادرة
+    """
+    bootstrap = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_change_data")
+    if not bootstrap or "elements" not in bootstrap:
+        return [], []
+    
+    players_data = []
+    for player in bootstrap["elements"]:
+        # حساب نسبة التغيير المتوقعة بناءً على:
+        # - نقلات الدخول (transfers_in)
+        # - نقلات الخروج (transfers_out)
+        # - نسبة الملكية الحالية (selected_by_percent)
+        # - صافي النقلات (net_transfers)
+        
+        transfers_in = player.get("transfers_in", 0)
+        transfers_out = player.get("transfers_out", 0)
+        net_transfers = transfers_in - transfers_out
+        selected_by = player.get("selected_by_percent", 0)
+        now_cost = player.get("now_cost", 0) / 10
+        total_points = player.get("total_points", 0)
+        
+        # حساب نسبة التغيير المتوقعة (خوارزمية مبسطة)
+        # كلما زادت النقلات الواردة وزادت الملكية، زادت احتمالية الارتفاع
+        if net_transfers > 0 and selected_by > 0:
+            # احتمالية الارتفاع تعتمد على صافي النقلات ونسبة الملكية
+            rise_probability = min(100, (net_transfers / 1000) * (1 + selected_by / 20))
+        else:
+            rise_probability = 0
+            
+        if net_transfers < 0 and selected_by > 0:
+            # احتمالية الانخفاض تعتمد على صافي النقلات السالبة ونسبة الملكية
+            fall_probability = min(100, (abs(net_transfers) / 1000) * (1 + selected_by / 20))
+        else:
+            fall_probability = 0
+        
+        player_name = f"{player.get('first_name', '')} {player.get('second_name', '')}"
+        
+        players_data.append({
+            "id": player["id"],
+            "name": player_name,
+            "price": now_cost,
+            "selected_by": selected_by,
+            "transfers_in": transfers_in,
+            "transfers_out": transfers_out,
+            "net_transfers": net_transfers,
+            "rise_probability": rise_probability,
+            "fall_probability": fall_probability,
+            "total_points": total_points,
+            "element_type": player.get("element_type", 0),
+            "team": player.get("team", 0)
+        })
+    
+    # ترتيب حسب احتمالية الارتفاع (تنازلياً)
+    risers = sorted(players_data, key=lambda x: x["rise_probability"], reverse=True)[:5]
+    
+    # ترتيب حسب احتمالية الانخفاض (تنازلياً)
+    fallers = sorted(players_data, key=lambda x: x["fall_probability"], reverse=True)[:5]
+    
+    return risers, fallers
+
+def get_actual_price_changes():
+    """
+    جلب آخر التغييرات الفعلية في الأسعار من bootstrap
+    """
+    bootstrap = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_actual_price_changes")
+    if not bootstrap or "elements" not in bootstrap:
+        return [], []
+    
+    risers = []
+    fallers = []
+    
+    for player in bootstrap["elements"]:
+        # التحقق من تغيرات الأسعار الفعلية
+        now_cost = player.get("now_cost", 0) / 10
+        cost_change_start = player.get("cost_change_start", 0) / 10
+        
+        player_name = f"{player.get('first_name', '')} {player.get('second_name', '')}"
+        selected_by = player.get("selected_by_percent", 0)
+        
+        if cost_change_start > 0:
+            risers.append({
+                "id": player["id"],
+                "name": player_name,
+                "price": now_cost,
+                "price_change": cost_change_start,
+                "selected_by": selected_by,
+                "element_type": player.get("element_type", 0),
+                "team": player.get("team", 0)
+            })
+        elif cost_change_start < 0:
+            fallers.append({
+                "id": player["id"],
+                "name": player_name,
+                "price": now_cost,
+                "price_change": cost_change_start,
+                "selected_by": selected_by,
+                "element_type": player.get("element_type", 0),
+                "team": player.get("team", 0)
+            })
+    
+    # ترتيب حسب التغيير الأكبر
+    risers = sorted(risers, key=lambda x: x["price_change"], reverse=True)[:5]
+    fallers = sorted(fallers, key=lambda x: x["price_change"])[:5]
+    
+    return risers, fallers
+
+def format_price_predictions_display(manager_id, info, gameweek):
+    """
+    عرض توقعات تغيرات الأسعار
+    """
+    name = sanitize_markdown(safe_str(info.get("name")))
+    
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date = now_mecca.strftime("%d/%m/%Y")
+    
+    response = (
+        f"📊 **توقعات تغيرات الأسعار**\n"
+        f"👤 {name}\n"
+        f"📅 **الجولة {gameweek}**\n"
+        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+    )
+    
+    # جلب التوقعات
+    predicted_risers, predicted_fallers = get_price_change_data()
+    
+    # جلب التغييرات الفعلية
+    actual_risers, actual_fallers = get_actual_price_changes()
+    
+    # عرض التوقعات
+    response += "🔮 **التوقعات:**\n\n"
+    
+    if predicted_risers:
+        response += "📈 **أكثر 5 لاعبين متوقع ارتفاعهم:**\n"
+        for idx, player in enumerate(predicted_risers, 1):
+            if player["rise_probability"] > 0:
+                player_name = sanitize_markdown(player["name"])
+                response += (
+                    f"{idx}. **{player_name}**\n"
+                    f"   💰 السعر: £{player['price']:.1f}M | 📊 الملكية: {player['selected_by']:.1f}%\n"
+                    f"   📈 نسبة التوقع: {player['rise_probability']:.1f}%\n\n"
+                )
+    else:
+        response += "📈 لا يوجد لاعبين متوقع ارتفاعهم حالياً\n\n"
+    
+    if predicted_fallers:
+        response += "📉 **أكثر 5 لاعبين متوقع انخفاضهم:**\n"
+        for idx, player in enumerate(predicted_fallers, 1):
+            if player["fall_probability"] > 0:
+                player_name = sanitize_markdown(player["name"])
+                response += (
+                    f"{idx}. **{player_name}**\n"
+                    f"   💰 السعر: £{player['price']:.1f}M | 📊 الملكية: {player['selected_by']:.1f}%\n"
+                    f"   📉 نسبة التوقع: {player['fall_probability']:.1f}%\n\n"
+    )
+    else:
+        response += "📉 لا يوجد لاعبين متوقع انخفاضهم حالياً\n\n"
+    
+    # عرض التغييرات الفعلية
+    response += "━━━━━━━━━━━━━━━━━━━━━\n"
+    response += "✅ **آخر التغييرات الفعلية:**\n\n"
+    
+    if actual_risers:
+        response += "📈 **آخر 5 لاعبين ارتفع سعرهم:**\n"
+        for idx, player in enumerate(actual_risers, 1):
+            player_name = sanitize_markdown(player["name"])
+            response += (
+                f"{idx}. **{player_name}**\n"
+                f"   💰 السعر: £{player['price']:.1f}M (▲+{player['price_change']:.1f}M)\n"
+                f"   📊 الملكية: {player['selected_by']:.1f}%\n\n"
+            )
+    else:
+        response += "📈 لا يوجد لاعبين ارتفع سعرهم مؤخراً\n\n"
+    
+    if actual_fallers:
+        response += "📉 **آخر 5 لاعبين انخفض سعرهم:**\n"
+        for idx, player in enumerate(actual_fallers, 1):
+            player_name = sanitize_markdown(player["name"])
+            response += (
+                f"{idx}. **{player_name}**\n"
+                f"   💰 السعر: £{player['price']:.1f}M (▼{abs(player['price_change']):.1f}M)\n"
+                f"   📊 الملكية: {player['selected_by']:.1f}%\n\n"
+            )
+    else:
+        response += "📉 لا يوجد لاعبين انخفض سعرهم مؤخراً\n\n"
+    
+    return response
 
 def get_fixtures(gameweek=None):
     if gameweek:
@@ -916,11 +1126,25 @@ def get_buttons(manager_id, gameweek, current_view):
          InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
          InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
+        [InlineKeyboardButton("📊 توقعات الأسعار", callback_data=f"prices_{manager_id}_{gameweek}"),
+         InlineKeyboardButton("🔄 تحديث", callback_data=f"refresh_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
+def get_prices_buttons(manager_id, gameweek):
+    """
+    أزرار التنقل لتوقعات الأسعار
+    """
+    keyboard = [
+        [InlineKeyboardButton("🔮 توقعات التغير", callback_data=f"prices_predict_{manager_id}_{gameweek}"),
+         InlineKeyboardButton("✅ التغيرات الفعلية", callback_data=f"prices_actual_{manager_id}_{gameweek}")],
+        [InlineKeyboardButton("🔄 تحديث البيانات", callback_data=f"prices_refresh_{manager_id}_{gameweek}")],
+        [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+    
 def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
     keyboard = []
     
@@ -1008,7 +1232,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✓ ترتيب المدرب في كل دوري\n"
             "✓ تاريخ المواسم السابقة\n"
             "✓ نتائج المباريات وتفاصيلها ⚽\n"
-            "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات \n"
+            "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات\n"
+            "✓ توقعات تغيرات الأسعار 📊\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
             "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
@@ -1124,7 +1349,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "✓ نقاط الجولة والترتيب العام\n"
                 "✓ نقاط كل لاعب في الفريق ونقاط الكابتن\n"
                 "✓ قائمة أعلى 20 لاعباً نقاطاً أو سعراً 👥\n"
-                "✓ مواعيد الديدلاين والمباريات ⚽\n\n"
+                "✓ مواعيد الديدلاين والمباريات ⚽\n"
+                "✓ توقعات تغيرات الأسعار 📊\n\n"
                 "📝 **مثال:** أرسل `2794801`"
             )
             await context.bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode='Markdown')
@@ -1193,7 +1419,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown', reply_markup=reply_markup
             )
             return
-        
+                # معالجة توقعات الأسعار
+        elif parts[0] == "prices" or parts[0] == "prices_predict" or parts[0] == "prices_actual" or parts[0] == "prices_refresh":
+            gameweek = int(parts[2])
+            
+            await context.bot.edit_message_text(
+                text="🔄 جاري تحميل توقعات الأسعار...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            # عرض توقعات الأسعار
+            text = format_price_predictions_display(manager_id, info, gameweek)
+            reply_markup = get_prices_buttons(manager_id, gameweek)
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
         elif parts[0] == "nav":
             gameweek = int(parts[2])
             current_text = query.message.text
