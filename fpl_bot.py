@@ -1,11 +1,7 @@
 import os
 import logging
 import calendar
-import json
-import asyncio
 from datetime import datetime, timezone, timedelta
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
@@ -380,133 +376,6 @@ def get_gameweek_stats(gameweek):
                     "highest_score": event.get("highest_score", 0)
                 }
     return {"average_score": 0, "highest_score": 0}
-
-# ============================================================
-# دوال تتبع تغيرات الأسعار
-# ============================================================
-
-PRICE_HISTORY_FILE = "price_history.json"
-ACTIVE_USERS_FILE = "active_users.json"
-
-def load_active_users():
-    """تحميل قائمة المستخدمين النشطين من ملف"""
-    try:
-        with open(ACTIVE_USERS_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-def save_active_user(user_id):
-    """حفظ معرف المستخدم النشط"""
-    users = load_active_users()
-    if user_id not in users:
-        users.append(user_id)
-        with open(ACTIVE_USERS_FILE, "w") as f:
-            json.dump(users, f)
-
-def get_price_changes():
-    """
-    مقارنة أسعار اللاعبين بين التحديثين الأخيرين
-    وإرجاع قائمة اللاعبين الذين تغيرت أسعارهم
-    """
-    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_changes")
-    if not data or "elements" not in data:
-        return []
-    
-    # تحميل الأسعار السابقة
-    previous_prices = {}
-    try:
-        with open(PRICE_HISTORY_FILE, "r") as f:
-            previous_prices = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        previous_prices = {}
-    
-    # حفظ الأسعار الحالية للمرة القادمة
-    current_prices = {}
-    changes = []
-    
-    for player in data["elements"]:
-        player_id = str(player["id"])
-        current_price = player.get("now_cost", 0) / 10
-        player_name = f"{player['first_name']} {player['second_name']}"
-        current_prices[player_id] = current_price
-        
-        # مقارنة مع السعر السابق
-        previous_price = previous_prices.get(player_id)
-        if previous_price is not None and abs(current_price - previous_price) > 0.01:
-            change = current_price - previous_price
-            direction = "📈 ارتفع" if change > 0 else "📉 انخفض"
-            changes.append({
-                "id": player_id,
-                "name": player_name,
-                "old_price": previous_price,
-                "new_price": current_price,
-                "change": change,
-                "direction": direction
-            })
-    
-    # حفظ الأسعار الحالية
-    with open(PRICE_HISTORY_FILE, "w") as f:
-        json.dump(current_prices, f)
-    
-    return changes
-
-async def send_price_updates(context: ContextTypes.DEFAULT_TYPE):
-    """
-    يتم استدعاؤها تلقائياً كل يوم للتحقق من تغيرات الأسعار
-    وإرسالها لجميع المستخدمين النشطين
-    """
-    try:
-        changes = get_price_changes()
-        if not changes:
-            logger.info("لا توجد تغيرات في الأسعار اليوم")
-            return
-        
-        # بناء رسالة التحديث
-        message = "📊 **تحديث أسعار اللاعبين**\n\n"
-        
-        # ترتيب التغييرات حسب الأكبر تغيراً
-        changes.sort(key=lambda x: abs(x["change"]), reverse=True)
-        
-        for change in changes[:15]:
-            message += (
-                f"• **{change['name']}**: {change['direction']} "
-                f"من £{change['old_price']:.1f}M إلى £{change['new_price']:.1f}M "
-                f"({change['change']:+.1f}M)\n"
-            )
-        
-        if len(changes) > 15:
-            message += f"\nو {len(changes) - 15} لاعبين آخرين..."
-        
-        # إضافة ملاحظة زمنية
-        now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
-        message += f"\n\n🕐 تحديث: {now_mecca.strftime('%I:%M %p').lstrip('0').lower()} - {now_mecca.strftime('%d/%m/%Y')}"
-        message += "\n🕌 بتوقيت مكة المكرمة"
-        
-        # الحصول على قائمة المستخدمين النشطين
-        active_users = load_active_users()
-        
-        if not active_users:
-            logger.info("لا يوجد مستخدمون نشطون لإرسال التحديثات")
-            return
-        
-        sent_count = 0
-        for user_id in active_users:
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=message,
-                    parse_mode='Markdown'
-                )
-                sent_count += 1
-                await asyncio.sleep(0.1)  # تجنب تجاوز حد الطلبات
-            except Exception as e:
-                logger.error(f"فشل في إرسال التحديث للمستخدم {user_id}: {e}")
-        
-        logger.info(f"✅ تم إرسال تحديث الأسعار ({len(changes)} تغيير) لـ {sent_count} مستخدم")
-        
-    except Exception as e:
-        logger.error(f"❌ خطأ في send_price_updates: {e}")
 
 # ============================================================
 # دوال عرض المعلومات
@@ -1140,7 +1009,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✓ تاريخ المواسم السابقة\n"
             "✓ نتائج المباريات وتفاصيلها ⚽\n"
             "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات \n"
-            "✓ تحديثات الأسعار اليومية 📊\n"
             "🔑 **كيف تحصل على معرف مدرب؟**\n"
             "افتح موقع FPL، الرقم في الرابط:\n"
             "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
@@ -1166,8 +1034,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         manager_id = int(message_text)
         context.user_data['current_manager_id'] = manager_id
-        # ✅ إضافة المستخدم إلى قائمة النشطين لتلقي تحديثات الأسعار
-        save_active_user(user_id)
     except ValueError:
         await update.message.reply_text(
             "❌ يرجى إرسال **رقم معرف المدرب** فقط.\nمثال: `1234567`\nأو أرسل /help للمساعدة",
@@ -1258,8 +1124,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "✓ نقاط الجولة والترتيب العام\n"
                 "✓ نقاط كل لاعب في الفريق ونقاط الكابتن\n"
                 "✓ قائمة أعلى 20 لاعباً نقاطاً أو سعراً 👥\n"
-                "✓ مواعيد الديدلاين والمباريات ⚽\n"
-                "✓ تحديثات الأسعار اليومية 📊\n\n"
+                "✓ مواعيد الديدلاين والمباريات ⚽\n\n"
                 "📝 **مثال:** أرسل `2794801`"
             )
             await context.bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode='Markdown')
@@ -1444,21 +1309,8 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
     
-    # ============================================================
-    # جدولة إرسال تحديثات الأسعار يومياً الساعة 02:00 (توقيت مكة)
-    # ============================================================
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(
-        lambda: asyncio.create_task(send_price_updates(application.bot)),
-        trigger=CronTrigger(hour=2, minute=0),
-        id="price_updates",
-        replace_existing=True
-    )
-    scheduler.start()
-    logger.info("⏰ تم جدولة تحديثات الأسعار يومياً الساعة 02:00 صباحاً (توقيت مكة)")
-    
     print("=" * 50)
-    print("🤖 البوت يعمل الآن (الإصدار مع تحديثات الأسعار التلقائية)")
+    print("🤖 البوت يعمل الآن (الإصدار مع زر المواعيد)")
     print(f"📅 آخر جولة لعبت: {current_gameweek}")
     print("✅ المميزات:")
     print("   • عرض بسيط ومفصل للمدربين")
@@ -1466,7 +1318,6 @@ def main():
     print("   • حالة البطاقات مع تقسيم الموسم لنصفين")
     print("   • عرض المباريات بنتائج وتفاصيل")
     print("   • مواعيد الجولة (الديدلاين) ⏰")
-    print("   • تحديثات الأسعار اليومية 📊 (الساعة 02:00 صباحاً)")
     print("   • توقيت مكة المكرمة حصراً")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
