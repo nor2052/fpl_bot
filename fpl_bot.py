@@ -1175,10 +1175,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    await update.message.reply_text(f"🔄 جاري التحقق من المعرف {manager_id}...")
+    # 1. إرسال وتخزين رسالة جاري التحقق
+    msg_checking = await update.message.reply_text(f"🔄 جاري التحقق من المعرف {manager_id}...")
     info = get_manager_info(manager_id)
     
     if not info:
+        await msg_checking.delete()  # حذف رسالة التحقق عند حدوث خطأ
         await update.message.reply_text(
             f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.\n\nتأكد من صحة المعرف.\nيمكنك تجربة: `2794801`",
             parse_mode='Markdown'
@@ -1188,18 +1190,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = safe_str(info.get("name"))
     start_gameweek = current_gameweek
     
-    await update.message.reply_text(
+    # 2. إرسال وتخزين رسالة التحميل
+    msg_loading = await update.message.reply_text(
         f"✅ تم العثور على المدرب **{name}**!\n📅 سيتم عرض بيانات **الجولة {start_gameweek}** (الجولة الحالية)\n\n🔄 جاري تحميل البيانات...",
         parse_mode='Markdown'
     )
     
+    # جلب البيانات والتنسيق
     picks_data = get_manager_picks(manager_id, start_gameweek)
     history = get_manager_history(manager_id)
     text = format_simple_display(manager_id, info, start_gameweek, picks_data, history)
     reply_markup = get_buttons(manager_id, start_gameweek, "simple")
     
+    # 3. حذف الرسالتين المؤقتتين
+    try:
+        await msg_checking.delete()
+        await msg_loading.delete()
+    except Exception as e:
+        logger.warning(f"فشل حذف الرسائل المؤقتة: {e}")
+    
+    # 4. إرسال الرسالة النهائية
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
-
+    
 def get_teams_keyboard(manager_id, gameweek):
     """
     إنشاء لوحة أزرار تحتوي على قائمة كافة الفرق بالدوري
