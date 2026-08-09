@@ -222,11 +222,9 @@ def get_all_players_data(sort_by="points", team_id=None, position_id=None):
             if p_id in POSITION_OVERRIDES_26_27:
                 element_type, _ = POSITION_OVERRIDES_26_27[p_id]
 
-            # التصفية حسب الفريق
             if team_id is not None and player.get("team") != team_id:
                 continue
 
-            # التصفية حسب المركز (1: حارس, 2: دفاع, 3: وسط, 4: هجوم)
             if position_id is not None and element_type != position_id:
                 continue
 
@@ -245,7 +243,6 @@ def get_all_players_data(sort_by="points", team_id=None, position_id=None):
             except (ValueError, TypeError):
                 ppm_val = 0.0
 
-            # جلب تفاصيل الدفاع والمساهمات
             cbi = safe_int(player.get("clearances_blocks_interceptions", 0))
             tackles = safe_int(player.get("tackles", 0))
             recoveries = safe_int(player.get("recoveries", 0))
@@ -268,7 +265,7 @@ def get_all_players_data(sort_by="points", team_id=None, position_id=None):
                 "def_contrib": def_contrib
             })
     
-    # الفرز حسب المعيار المطلوب
+    # الفرز بناءً على المسميات الجديدة كلياً
     if sort_by == "price":
         players_list.sort(key=lambda x: (x["price"], x["total_points"]), reverse=True)
     elif sort_by == "selected":
@@ -281,11 +278,11 @@ def get_all_players_data(sort_by="points", team_id=None, position_id=None):
         players_list.sort(key=lambda x: (x["goals"], x["total_points"]), reverse=True)
     elif sort_by == "assists":
         players_list.sort(key=lambda x: (x["assists"], x["total_points"]), reverse=True)
-    elif sort_by == "clean_sheets":
+    elif sort_by in ["clean_sheets", "cleansheets"]:
         players_list.sort(key=lambda x: (x["clean_sheets"], x["total_points"]), reverse=True)
     elif sort_by == "saves":
         players_list.sort(key=lambda x: (x["saves"], x["total_points"]), reverse=True)
-    elif sort_by == "def_contrib":
+    elif sort_by in ["def_contrib", "defcontrib"]:
         players_list.sort(key=lambda x: (x["def_contrib"], x["total_points"]), reverse=True)
     else:
         players_list.sort(key=lambda x: (x["total_points"], x["price"]), reverse=True)
@@ -1307,8 +1304,7 @@ def get_positions_keyboard(manager_id, gameweek):
 
 def get_position_players_buttons(manager_id, gameweek, pos_id, sort_by, page, total_pages):
     """
-    أزرار الفرز المخصصة لكل مركز بالظبط حسب طلبك
-    pos_id: 4=هجوم, 3=وسط, 2=دفاع, 1=حراس
+    أزرار الفرز المخصصة لكل مركز (بدون شرطات سفلى في الكالباك لتجنب خطأ split)
     """
     keyboard = []
     
@@ -1316,29 +1312,29 @@ def get_position_players_buttons(manager_id, gameweek, pos_id, sort_by, page, to
         icon = "✅ " if sort_by == key else ""
         return InlineKeyboardButton(f"{icon}{label}", callback_data=f"posview_{manager_id}_{gameweek}_{pos_id}_{key}_0")
 
-    # 1. الهجوم (5 أزرار: نقاط، سعر، ملكية، أهداف، أسيست)
+    # 1. الهجوم (5 أزرار)
     if pos_id == 4:
         keyboard.append([btn("النقاط 🏆", "points"), btn("السعر 💰", "price")])
         keyboard.append([btn("الملكية 📊", "selected"), btn("الأهداف ⚽", "goals")])
         keyboard.append([btn("الأسيستات 🅰️", "assists")])
         
-    # 2. الوسط (6 أزرار: نقاط، سعر، ملكية، أهداف، أسيست، مساهمات دفاعية)
+    # 2. الوسط (6 أزرار)
     elif pos_id == 3:
         keyboard.append([btn("النقاط 🏆", "points"), btn("السعر 💰", "price")])
         keyboard.append([btn("الملكية 📊", "selected"), btn("الأهداف ⚽", "goals")])
-        keyboard.append([btn("الأسيستات 🅰️", "assists"), btn("مساهمات دفاعية 🧱", "def_contrib")])
+        keyboard.append([btn("الأسيستات 🅰️", "assists"), btn("مساهمات دفاعية 🧱", "defcontrib")])
 
-    # 3. الدفاع (7 أزرار: نقاط، سعر، ملكية، أهداف، أسيست، كلين شيت، مساهمات دفاعية)
+    # 3. الدفاع (7 أزرار)
     elif pos_id == 2:
         keyboard.append([btn("النقاط 🏆", "points"), btn("السعر 💰", "price")])
         keyboard.append([btn("الملكية 📊", "selected"), btn("الأهداف ⚽", "goals")])
-        keyboard.append([btn("الأسيستات 🅰️", "assists"), btn("كلين شيت 🛡️", "clean_sheets")])
-        keyboard.append([btn("مساهمات دفاعية 🧱", "def_contrib")])
+        keyboard.append([btn("الأسيستات 🅰️", "assists"), btn("كلين شيت 🛡️", "cleansheets")])
+        keyboard.append([btn("مساهمات دفاعية 🧱", "defcontrib")])
 
-    # 4. الحراس (5 أزرار: نقاط، سعر، ملكية، كلين شيت، تصديات)
+    # 4. الحراس (5 أزرار)
     elif pos_id == 1:
         keyboard.append([btn("النقاط 🏆", "points"), btn("السعر 💰", "price")])
-        keyboard.append([btn("الملكية 📊", "selected"), btn("كلين شيت 🛡️", "clean_sheets")])
+        keyboard.append([btn("الملكية 📊", "selected"), btn("كلين شيت 🛡️", "cleansheets")])
         keyboard.append([btn("التصديات 🧤", "saves")])
 
     # أزرار الصفحات
@@ -1354,7 +1350,7 @@ def get_position_players_buttons(manager_id, gameweek, pos_id, sort_by, page, to
     keyboard.append([InlineKeyboardButton("🔙 العودة لقائمة اللاعبين العامة", callback_data=f"players_{manager_id}_{gameweek}_points_0")])
 
     return InlineKeyboardMarkup(keyboard)
-
+    
 def format_position_players_display(manager_id, gameweek, pos_id, sort_by="points", page=0):
     """
     عرض وتنسيق لاعبي مركز محدد
@@ -1373,8 +1369,10 @@ def format_position_players_display(manager_id, gameweek, pos_id, sort_by="point
     
     sort_labels = {
         "points": "النقاط", "price": "السعر", "selected": "الملكية",
-        "goals": "الأهداف", "assists": "الأسيستات", "clean_sheets": "الكلين شيت",
-        "saves": "التصديات", "def_contrib": "المساهمات الدفاعية"
+        "goals": "الأهداف", "assists": "الأسيستات",
+        "clean_sheets": "الكلين شيت", "cleansheets": "الكلين شيت",
+        "saves": "التصديات",
+        "def_contrib": "المساهمات الدفاعية", "defcontrib": "المساهمات الدفاعية"
     }
     
     response = (
@@ -1396,11 +1394,11 @@ def format_position_players_display(manager_id, gameweek, pos_id, sort_by="point
             extra_stat = f" | الأهداف: **{player['goals']}**"
         elif sort_by == "assists":
             extra_stat = f" | الأسيستات: **{player['assists']}**"
-        elif sort_by == "clean_sheets":
+        elif sort_by in ["clean_sheets", "cleansheets"]:
             extra_stat = f" | الكلين شيت: **{player['clean_sheets']}**"
         elif sort_by == "saves":
             extra_stat = f" | التصديات: **{player['saves']}**"
-        elif sort_by == "def_contrib":
+        elif sort_by in ["def_contrib", "defcontrib"]:
             extra_stat = f" | مساهمات دفاعية: **{player['def_contrib']}**"
 
         response += (
@@ -1410,7 +1408,7 @@ def format_position_players_display(manager_id, gameweek, pos_id, sort_by="point
         
     response += "━━━━━━━━━━━━━━━━━━━━━\n"
     return response
-
+    
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
