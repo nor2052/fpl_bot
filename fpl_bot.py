@@ -210,8 +210,10 @@ def get_players_dict():
 def get_all_players_data(sort_by="points"):
     """
     جلب كافة اللاعبين وتنسيق بياناتهم مع الترتيب بناءً على المعيار المختار
-    sort_by: "points" للترتيب حسب النقاط من الأعلى للأقل
-             "price" للترتيب حسب السعر من الأعلى للأقل
+    sort_by: "points" للترتيب حسب النقاط
+             "price" للترتيب حسب السعر
+             "selected" للترتيب حسب نسبة الملكية
+             "form" للترتيب حسب الفورم
     """
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_all_players_data")
     players_list = []
@@ -223,6 +225,16 @@ def get_all_players_data(sort_by="points"):
                 new_pos, _ = POSITION_OVERRIDES_26_27[player_id]
                 player["element_type"] = new_pos
             
+            try:
+                selected_val = float(player.get("selected_by_percent", 0))
+            except (ValueError, TypeError):
+                selected_val = 0.0
+
+            try:
+                form_val = float(player.get("form", 0))
+            except (ValueError, TypeError):
+                form_val = 0.0
+
             players_list.append({
                 "id": player["id"],
                 "name": f"{player['first_name']} {player['second_name']}",
@@ -230,13 +242,17 @@ def get_all_players_data(sort_by="points"):
                 "price": player.get("now_cost", 0) / 10,
                 "total_points": player.get("total_points", 0),
                 "team": player.get("team", 0),
-                "selected_by": player.get("selected_by_percent", 0),
-                "form": player.get("form", 0)
+                "selected_by": selected_val,
+                "form": form_val
             })
     
     # الفرز حسب المعيار المطلوب
     if sort_by == "price":
         players_list.sort(key=lambda x: (x["price"], x["total_points"]), reverse=True)
+    elif sort_by == "selected":
+        players_list.sort(key=lambda x: (x["selected_by"], x["total_points"]), reverse=True)
+    elif sort_by == "form":
+        players_list.sort(key=lambda x: (x["form"], x["total_points"]), reverse=True)
     else:
         players_list.sort(key=lambda x: (x["total_points"], x["price"]), reverse=True)
         
@@ -1028,13 +1044,20 @@ def get_buttons(manager_id, gameweek, current_view):
 def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
     keyboard = []
     
-    # 1. أزرار اختيار نوع الفرز (نقاط / سعر)
-    points_btn_text = "✅ الأكثر نقاطاً 🏆" if sort_by == "points" else "الأكثر نقاطاً 🏆"
-    price_btn_text = "✅ الأعلى سعراً 💰" if sort_by == "price" else "الأعلى سعراً 💰"
+    # 1. أزرار اختيار نوع الفرز (نقاط / سعر / ملكية / فورم)
+    points_btn_text = "✅ النقاط 🏆" if sort_by == "points" else "النقاط 🏆"
+    price_btn_text = "✅ السعر 💰" if sort_by == "price" else "السعر 💰"
+    selected_btn_text = "✅ الملكية 📊" if sort_by == "selected" else "الملكية 📊"
+    form_btn_text = "✅ الفورم 🔥" if sort_by == "form" else "الفورم 🔥"
     
     keyboard.append([
         InlineKeyboardButton(points_btn_text, callback_data=f"players_{manager_id}_{gameweek}_points_0"),
         InlineKeyboardButton(price_btn_text, callback_data=f"players_{manager_id}_{gameweek}_price_0")
+    ])
+    
+    keyboard.append([
+        InlineKeyboardButton(selected_btn_text, callback_data=f"players_{manager_id}_{gameweek}_selected_0"),
+        InlineKeyboardButton(form_btn_text, callback_data=f"players_{manager_id}_{gameweek}_form_0")
     ])
     
     # 2. أزرار التنقل بين الصفحات (التالي / السابق)
@@ -1051,7 +1074,7 @@ def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
     keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
     
     return InlineKeyboardMarkup(keyboard)
-
+    
 def get_subscription_button():
     keyboard = []
     
