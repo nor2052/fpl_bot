@@ -58,9 +58,9 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int) -
                 return False
         except Exception as e:
             logger.error(f"خطأ في التحقق من اشتراك المستخدم {user_id} في القناة {channel_id}: {e}")
-            return True
+            return False  # تم التعديل إلى False لضمان الأمان
     return True
-
+    
 def safe_api_request(url, debug_name="API Request"):
     for attempt in range(3):
         try:
@@ -1103,7 +1103,20 @@ def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
     keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
     
     return InlineKeyboardMarkup(keyboard)
-    
+
+def get_subscription_button():
+    keyboard = []
+    # إضافة زر لكل قناة من القنوات المحددة
+    for channel in CHANNELS:
+        keyboard.append([
+            InlineKeyboardButton(f"📢 اشترك في {channel['name']}", url=f"https://t.me/{channel['id'].replace('@', '')}")
+        ])
+    # إضافة زر التحقق بعد الانضمام
+    keyboard.append([
+        InlineKeyboardButton("✅ تم الاشتراك - تحقق مرة أخرى", callback_data="check_0")
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # التأكد من وجود رسالة نصية
     if not update.message or not update.message.text:
@@ -1422,21 +1435,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"فشل في answer callback: {e}")
     
     user_id = update.effective_user.id
-    is_subscribed = await check_subscription(context, user_id)
-    
-    if not is_subscribed:
-        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
-        await context.bot.edit_message_text(
-            text=f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
-                 f"{channels_list}\n\n"
-                 f"✅ بعد الاشتراك في الكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
-            chat_id=query.message.chat_id,
-            message_id=query.message.message_id,
-            parse_mode='Markdown',
-            reply_markup=get_subscription_button()
-        )
-        return
-    
     data = query.data
     chat_id = query.message.chat_id
     message_id = query.message.message_id
@@ -1447,8 +1445,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2:
         logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
-    
-    # 1. زر التحقق من الاشتراك
+
+    # 1. معالجة زر التحقق من الاشتراك الخاص بالقنوات أولاً
     if parts[0] == "check":
         logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
         is_subscribed = await check_subscription(context, user_id)
@@ -1458,17 +1456,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
             except Exception as e:
                 logger.error(f"فشل في حذف رسالة الاشتراك: {e}")
-                await context.bot.edit_message_text(
-                    text="✅ **تم التحقق من اشتراكك!**\n\nأرسل معرف المدرب للبدء.",
-                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
-                )
-                return
             
             welcome_text = (
-                "🎮 **بوت مساعد الفانتاسي**\n"
+                "🎮 **بوت مساعد الفانتاسي**\n\n"
                 "✨ **كيف يعمل؟**\n"
                 "• أرسل **رقم معرف المدرب**\n"
                 "• سأعرض لك بيانات الجولة الحالية تلقائياً\n\n"
+                "📊 **البيانات المتاحة**\n"
+                "✓ نقاط الجولة للمدرب\n"
+                "✓ النقاط الكلية والترتيب العالمي\n"
+                "✓ نقاط كل لاعب في الفريق\n"
+                "✓ نقاط القائد\n"
+                "✓ قيمة الفريق والبنك 💰\n"
+                "✓ ترتيب المدرب في كل دوري\n"
+                "✓ تاريخ المواسم السابقة\n"
+                "✓ نتائج المباريات وتفاصيلها ⚽\n"
+                "✓ مواعيد الديدلاين وانتهاء وقت الانتقالات \n\n"
+                "🔑 **كيف تحصل على معرف مدرب؟**\n"
+                "افتح موقع FPL، الرقم في الرابط:\n"
+                "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
                 "📝 **مثال:** أرسل `2794801`"
             )
             await context.bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode='Markdown')
@@ -1481,13 +1487,28 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=get_subscription_button()
             )
         return
+
+    # 2. فحص الاشتراك لباقي الأزرار والتفاعل
+    is_subscribed = await check_subscription(context, user_id)
+    if not is_subscribed:
+        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+        await context.bot.edit_message_text(
+            text=f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+                 f"{channels_list}\n\n"
+                 f"✅ بعد الاشتراك في الكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode='Markdown',
+            reply_markup=get_subscription_button()
+        )
+        return
     
     manager_id = context.user_data.get('current_manager_id')
     if not manager_id:
         try:
             if len(parts) >= 2:
                 manager_id = parts[1]
-        except:
+        except Exception:
             pass
     
     if not manager_id:
@@ -1498,18 +1519,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     try:
-        # 2. قائمة اختيار المراكز
+        # 3. قائمة اختيار المراكز
         if parts[0] == "poslist":
             gameweek = int(parts[2])
             await context.bot.edit_message_text(
-                text="🎯 **اختر المركز المطلوب لعرض لاعبيه تصاعدياً/تنازلياً:**",
+                text="🎯 **اختر المركز المطلوب لعرض لاعبيه:**",
                 chat_id=chat_id, message_id=message_id,
                 parse_mode='Markdown',
                 reply_markup=get_positions_keyboard(manager_id, gameweek)
             )
             return
 
-        # 3. عرض لاعبي مركز معين
+        # 4. عرض لاعبي مركز معين
         elif parts[0] == "posview":
             gameweek = int(parts[2])
             pos_id = int(parts[3])
@@ -1533,7 +1554,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # 4. قائمة اختيار الفرق
+        # 5. قائمة اختيار الفرق
         elif parts[0] == "teamslist":
             gameweek = int(parts[2])
             await context.bot.edit_message_text(
@@ -1544,7 +1565,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # 5. عرض لاعبي فريق معين
+        # 6. عرض لاعبي فريق معين
         elif parts[0] == "teamview":
             gameweek = int(parts[2])
             team_id = int(parts[3])
@@ -1564,7 +1585,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # 6. قائمة جميع اللاعبين العامة
+        # 7. قائمة جميع اللاعبين العامة
         elif parts[0] == "players":
             gameweek = int(parts[2])
             
@@ -1603,10 +1624,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # 7. التنقل بين الجولات
+        # 8. التنقل بين الجولات
         elif parts[0] == "nav":
             gameweek = int(parts[2])
-            current_text = query.message.text
+            current_text = query.message.text or ""
             
             if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
                 view_type = "detail"
@@ -1655,7 +1676,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # 8. معالجة القوائم الرئيسية الأخرى
+        # 9. معالجة القوائم الرئيسية الأخرى
         elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline", "price"]:
             view_type = parts[0]
             gameweek = int(parts[2])
