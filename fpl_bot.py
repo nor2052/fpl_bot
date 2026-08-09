@@ -1105,29 +1105,40 @@ def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
     return InlineKeyboardMarkup(keyboard)
     
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # التأكد من وجود رسالة نصية
+    if not update.message or not update.message.text:
+        return
+
     message_text = update.message.text.strip()
     user_id = update.effective_user.id
-    
-    if message_text.startswith(('/start', '/help')):
+
+    # 1. فحص الاشتراك أولاً قبل أي شيء لجميع الرسائل
+    try:
         is_subscribed = await check_subscription(context, user_id)
-        
-        if not is_subscribed:
-            channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
-            
-            await update.message.reply_text(
-                f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
-                f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قنواتنا:\n"
-                f"{channels_list}\n\n"
-                f"✅ **خطوات الاشتراك:**\n"
-                f"1️⃣ اضغط على أزرار 'اشترك في القناة' أدناه لكل قناة\n"
-                f"2️⃣ انضم إلى جميع القنوات\n"
-                f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'\n\n"
-                f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في جميع القنوات.",
-                parse_mode='Markdown',
-                reply_markup=get_subscription_button()
-            )
-            return
-        
+    except Exception as e:
+        logger.error(f"خطأ أثناء فحص الاشتراك للمستخدم {user_id}: {e}")
+        # في حال حدوث خطأ في الفحص، نفترض أنه غير مشترك ونطلب منه الاشتراك
+        is_subscribed = False
+
+    # إذا لم يكن مشتركاً (سواء كتب /start أو أرسل آيدي مباشرة)
+    if not is_subscribed:
+        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+        await update.message.reply_text(
+            f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+            f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قنواتنا:\n"
+            f"{channels_list}\n\n"
+            f"✅ **خطوات الاشتراك:**\n"
+            f"1️⃣ اضغط على أزرار 'اشترك في القناة' أدناه لكل قناة\n"
+            f"2️⃣ انضم إلى جميع القنوات\n"
+            f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'\n\n"
+            f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في جميع القنوات.",
+            parse_mode='Markdown',
+            reply_markup=get_subscription_button()
+        )
+        return
+
+    # 2. إذا كان مشتركاً وكتب /start أو /help
+    if message_text.startswith(('/start', '/help')):
         await update.message.reply_text(
             "🎮 **بوت مساعد الفانتاسي**\n"
             "✨ **كيف يعمل؟**\n"
@@ -1150,21 +1161,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
-    
-    is_subscribed = await check_subscription(context, user_id)
-    
-    if not is_subscribed:
-        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
-        
-        await update.message.reply_text(
-            f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
-            f"{channels_list}\n\n"
-            f"✅ بعد الاشتراك في الكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
-            parse_mode='Markdown',
-            reply_markup=get_subscription_button()
-        )
-        return
-    
+
+    # 3. لمعالجة رقم معرف المدرب
     try:
         manager_id = int(message_text)
         context.user_data['current_manager_id'] = manager_id
@@ -1174,44 +1172,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
-    
-    # 1. إرسال وتخزين رسالة جاري التحقق
+
+    # 4. جلب البيانات وحذف الرسائل المؤقتة
     msg_checking = await update.message.reply_text(f"🔄 جاري التحقق من المعرف {manager_id}...")
     info = get_manager_info(manager_id)
-    
+
     if not info:
-        await msg_checking.delete()  # حذف رسالة التحقق عند حدوث خطأ
+        await msg_checking.delete()
         await update.message.reply_text(
             f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.\n\nتأكد من صحة المعرف.\nيمكنك تجربة: `2794801`",
             parse_mode='Markdown'
         )
         return
-    
+
     name = safe_str(info.get("name"))
     start_gameweek = current_gameweek
-    
-    # 2. إرسال وتخزين رسالة التحميل
+
     msg_loading = await update.message.reply_text(
         f"✅ تم العثور على المدرب **{name}**!\n📅 سيتم عرض بيانات **الجولة {start_gameweek}** (الجولة الحالية)\n\n🔄 جاري تحميل البيانات...",
         parse_mode='Markdown'
     )
-    
-    # جلب البيانات والتنسيق
+
     picks_data = get_manager_picks(manager_id, start_gameweek)
     history = get_manager_history(manager_id)
     text = format_simple_display(manager_id, info, start_gameweek, picks_data, history)
     reply_markup = get_buttons(manager_id, start_gameweek, "simple")
-    
-    # 3. حذف الرسالتين المؤقتتين
+
     try:
         await msg_checking.delete()
         await msg_loading.delete()
     except Exception as e:
         logger.warning(f"فشل حذف الرسائل المؤقتة: {e}")
-    
-    # 4. إرسال الرسالة النهائية
-    await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
-    
+
+    await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)    
 def get_teams_keyboard(manager_id, gameweek):
     """
     إنشاء لوحة أزرار تحتوي على قائمة كافة الفرق بالدوري
