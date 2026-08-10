@@ -297,6 +297,19 @@ def get_fixtures(gameweek=None):
     data = safe_api_request(url, "get_fixtures")
     return data if data else []
 
+def get_gameweek_live_data(gameweek):
+    """
+    جلب النقاط والأحداث الحية لجميع اللاعبين للجولة المحددة
+    """
+    url = f"https://fantasy.premierleague.com/api/event/{gameweek}/live/"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        logger.error(f"خطأ في جلب live data للجولة {gameweek}: {e}")
+    return {}
+
 def get_teams_dict():
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_teams_dict")
     
@@ -752,7 +765,7 @@ def format_leagues_display(manager_id, info, gameweek, history):
 
 def format_match_detail_display(fixture_id):
     """
-    عرض التفاصيل الإحصائية الكاملة للمباراة (اللاعبين، xGI، BPS، DEFCON)
+    عرض التشكيلة الكاملة والتفاصيل الإحصائية للفريقين (Spurs / Everton)
     """
     all_fixtures = get_fixtures()
     fixture = next((f for f in all_fixtures if f.get("id") == fixture_id), None)
@@ -761,84 +774,133 @@ def format_match_detail_display(fixture_id):
         return "❌ تعذر العثور على تفاصيل هذه المباراة."
 
     teams_dict = get_teams_dict()
-    players_dict = get_players_dict()  # دالة جلب أسماء اللاعبين بمعرفاتهم
+    players_dict = get_players_dict()  # قاموس أسماء اللاعبين
+    gameweek = fixture.get("event")
 
-    team_h_info = teams_dict.get(fixture.get("team_h"), {"short_name": "Home", "emoji_only": "⚪"})
-    team_a_info = teams_dict.get(fixture.get("team_a"), {"short_name": "Away", "emoji_only": "🔵"})
+    team_h_id = fixture.get("team_h")
+    team_a_id = fixture.get("team_a")
+
+    team_h_info = teams_dict.get(team_h_id, {"short_name": "Home", "emoji_only": "⚪", "name": "Team A"})
+    team_a_info = teams_dict.get(team_a_id, {"short_name": "Away", "emoji_only": "🔵", "name": "Team B"})
 
     score_h = fixture.get("team_h_score") if fixture.get("team_h_score") is not None else 0
     score_a = fixture.get("team_a_score") if fixture.get("team_a_score") is not None else 0
 
-    # 1. عنوان الفريقين والنتيجة
-    response = f"{team_h_info['emoji_only']} {team_h_info['short_name']} [ {score_h} ]\n"
-    
-    # تحضير إحصائيات المباراة
+    # جلب بيانات اللايف للجولة لجلب دقائق ونقاط تشكيلة المباراة
+    live_data = get_gameweek_live_data(gameweek) # دالة جلب https://fantasy.premierleague.com/api/event/{gw}/live/
+    elements_stats = live_data.get("elements", {}) if isinstance(live_data, dict) else {}
+
+    # استخراج الأحداث من fixture stats
     stats = fixture.get("stats", [])
     
-    def get_stat_dict(identifier):
-        h_data, a_data = {}, {}
+    def extract_stat_map(stat_name):
+        h_map, a_map = {}, {}
         for s in stats:
-            if s.get("identifier") == identifier:
+            if s.get("identifier") == stat_name:
                 for item in s.get("h", []):
-                    h_data[item["element"]] = item["value"]
+                    h_map[item["element"]] = item["value"]
                 for item in s.get("a", []):
-                    a_data[item["element"]] = item["value"]
-        return h_data, a_data
+                    a_map[item["element"]] = item["value"]
+        return h_map, a_map
 
-    # استخراج الأحداث والإحصائيات
-    bps_h, bps_a = get_stat_dict("bps")
-    goals_h, goals_a = get_stat_dict("goals_scored")
-    assists_h, assists_a = get_stat_dict("assists")
-    yellow_h, yellow_a = get_stat_dict("yellow_cards")
-    red_h, red_a = get_stat_dict("red_cards")
-    defcon_h, defcon_a = get_stat_dict("defensive_contributions") # أو حسب المعرف المتاح في الـ API
+    goals_h, goals_a = extract_stat_map("goals_scored")
+    assists_h, assists_a = extract_stat_map("assists")
+    yellow_h, yellow_a = extract_stat_map("yellow_cards")
+    red_h, red_a = extract_stat_map("red_cards")
+    bps_h, bps_a = extract_stat_map("bps")
+    bonus_h, bonus_a = extract_stat_map("bonus")
 
-    # دالة صياغة شريط أحداث اللاعبين (دقائق، نقاط، أيقونات)
-    def render_team_lineup(team_stats, is_home=True):
-        out = ""
-        # هنا يتم ترتيب اللاعبين حسب الدقائق التي لعبوها أولاً
-        for p_id, p_info in team_stats.items():
-            mins = p_info.get("minutes", 90)
-            pts = p_info.get("points", 0)
-            p_name = players_dict.get(p_id, "لاعب")
+    # دالة لبناء نص تشكيلة الفريق (دقيقة، نقاط، اسم، رموز)
+    def generate_team_section(team_id, team_info, score, is_home):
+        text = f"{team_info.get('emoji_only', '⚪')} {team_info.get('name', 'Team')} [ {score} ]\n"
+        
+        # تجميع لاعبي هذا الفريق الذين شاركوا في المباراة
+        team_players = []
+        for p_id, p_data in elements_stats.items():
+            # التأكد أن اللاعب ينتمي لهذا الفريق ولعب دقائق في الجولة
+            p_stats = p_data.get("stats", {})
+            p_team = p_data.get("fixture_team_id") or players_dict.get(p_id, {}).get("team")
             
-            # الرموز الإضافية
+            if p_team == team_id and p_stats.get("minutes", 0) > 0:
+                team_players.append((p_id, p_stats))
+
+        # ترتيب اللاعبين حسب الأفضلية في الدقائق ثم النقاط
+        team_players.sort(key=lambda x: (x[1].get("minutes", 0), x[1].get("total_points", 0)), reverse=True)
+
+        for p_id, p_stats in team_players:
+            mins = p_stats.get("minutes", 0)
+            pts = p_stats.get("total_points", 0)
+            p_name = players_dict.get(p_id, {}).get("web_name") or f"Player {p_id}"
+            
+            # بناء الإيموجيات للأحداث
             icons = ""
-            if p_info.get("is_gk"): icons += "🧤"
-            if p_id in (goals_h if is_home else goals_a): icons += "⚽️"
-            if p_id in (yellow_h if is_home else yellow_a): icons += "🟨"
-            if p_id in (red_h if is_home else red_a): icons += "🟥"
-            if p_info.get("has_defcon_bonus"): icons += "🛡"
-            if p_info.get("bonus_stars"): icons += "🎖" * p_info.get("bonus_stars")
+            if players_dict.get(p_id, {}).get("element_type") == 1: icons += " 🧤"
+            if p_id in (goals_h if is_home else goals_a): icons += " ⚽️"
+            if p_id in (yellow_h if is_home else yellow_a): icons += " 🟨"
+            if p_id in (red_h if is_home else red_a): icons += " 🟥"
+            if p_stats.get("defensive_contributions", 0) >= 10: icons += " 🛡"
+            
+            # إضافة النجوم للبونص
+            p_bonus = (bonus_h if is_home else bonus_a).get(p_id, 0)
+            if p_bonus > 0:
+                icons += " " + ("🎖" * p_bonus)
 
-            out += f"{mins:2d}' {pts:2d} {p_name} {icons}\n"
-        return out
+            text += f"{mins:2d}' {pts:2d} {p_name}{icons}\n"
+            
+        return text + "\n"
 
-    # (ملاحظة: يمكنك ضبط قائمة الأحداث للتشكيلة حسب البيانات الحية من FPL API)
-    
+    # 1. طباعة تشكيلة الفريقين بالكامل
+    response = generate_team_section(team_h_id, team_h_info, score_h, is_home=True)
+    response += generate_team_section(team_a_id, team_a_info, score_a, is_home=False)
+
     # 2. قسم Top xGI
-    response += "\nTop xGI:\n"
-    # يتم جمع xG + xA وتنسيقها
+    all_xgi = []
+    for p_id, p_data in elements_stats.items():
+        p_stats = p_data.get("stats", {})
+        xg = float(p_stats.get("expected_goals", 0.0))
+        xa = float(p_stats.get("expected_assists", 0.0))
+        if xg + xa > 0:
+            p_name = players_dict.get(p_id, {}).get("web_name", "لاعب")
+            all_xgi.append((xg, xa, xg + xa, p_name))
     
+    all_xgi.sort(key=lambda x: x[2], reverse=True)
+    
+    response += "Top xGI:\n"
+    for xg, xa, total, p_name in all_xgi[:10]:
+        response += f"{xg:.2f} + {xa:.2f}  {p_name}\n"
+
     # 3. قسم Top BPS
     all_bps = []
     for p_id, val in bps_h.items():
-        all_bps.append((val, players_dict.get(p_id, "لاعب")))
+        all_bps.append((val, players_dict.get(p_id, {}).get("web_name", "لاعب")))
     for p_id, val in bps_a.items():
-        all_bps.append((val, players_dict.get(p_id, "لاعب")))
+        all_bps.append((val, players_dict.get(p_id, {}).get("web_name", "لاعب")))
     all_bps.sort(key=lambda x: x[0], reverse=True)
 
     response += "\nTop BPS:\n"
     medals = ["🥇", "🥈", "🥉"]
     for idx, (val, p_name) in enumerate(all_bps[:10]):
         medal = f" {medals[idx]}" if idx < 3 else ""
-        bonus = f" +{3-idx}" if idx < 3 else ""
-        response += f"{val:2d} {p_name}{medal}{bonus}\n"
+        bonus_add = f" +{3-idx}" if idx < 3 else ""
+        response += f"{val:2d} {p_name}{medal}{bonus_add}\n"
 
     # 4. قسم Top DEFCON
-    response += "\nTop DEFCON:\n"
-    # ترتيب وطباعة قيم الـ DEFCON إن وجدت
-    
+    all_defcon = []
+    for p_id, p_data in elements_stats.items():
+        p_stats = p_data.get("stats", {})
+        defcon_val = p_stats.get("defensive_contributions", 0)
+        if defcon_val > 0:
+            p_name = players_dict.get(p_id, {}).get("web_name", "لاعب")
+            all_defcon.append((defcon_val, p_name))
+            
+    all_defcon.sort(key=lambda x: x[0], reverse=True)
+
+    if all_defcon:
+        response += "\nTop DEFCON:\n"
+        for val, p_name in all_defcon[:10]:
+            shield = " 🛡️ +2" if val >= 10 else ""
+            response += f"{val:2d} {p_name}{shield}\n"
+
     return response
     
 def format_fixtures_menu(gameweek):
@@ -851,6 +913,8 @@ def format_fixtures_menu(gameweek):
     return (
         f"⚽ **مباريات الجولة {gameweek}**\n"
         f"🕐 آخر تحديث: {update_time} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f" 🟢جارية 🔴 انتهت ⏳ لم تلعب بعد\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"👇 **اختر المباراة لعرض التفاصيل الإحصائية الكاملة:**"
     )
@@ -1728,7 +1792,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             match_keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 العودة لقائمة المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
-                [InlineKeyboardButton("🏠 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
             ])
             
             await context.bot.edit_message_text(
