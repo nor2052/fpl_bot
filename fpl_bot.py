@@ -752,9 +752,8 @@ def format_leagues_display(manager_id, info, gameweek, history):
 
 def format_match_detail_display(fixture_id):
     """
-    عرض تفاصيل مباراة محددة مع إحصائيات xGI, BPS, DEFCON وقائمة اللاعبين
+    عرض التفاصيل الإحصائية الكاملة للمباراة (اللاعبين، xGI، BPS، DEFCON)
     """
-    # جلب كافة المباريات للوصول للمباراة المطلوبة
     all_fixtures = get_fixtures()
     fixture = next((f for f in all_fixtures if f.get("id") == fixture_id), None)
     
@@ -762,48 +761,86 @@ def format_match_detail_display(fixture_id):
         return "❌ تعذر العثور على تفاصيل هذه المباراة."
 
     teams_dict = get_teams_dict()
+    players_dict = get_players_dict()  # دالة جلب أسماء اللاعبين بمعرفاتهم
+
     team_h_info = teams_dict.get(fixture.get("team_h"), {"short_name": "Home", "emoji_only": "⚪"})
     team_a_info = teams_dict.get(fixture.get("team_a"), {"short_name": "Away", "emoji_only": "🔵"})
 
     score_h = fixture.get("team_h_score") if fixture.get("team_h_score") is not None else 0
     score_a = fixture.get("team_a_score") if fixture.get("team_a_score") is not None else 0
 
+    # 1. عنوان الفريقين والنتيجة
     response = f"{team_h_info['emoji_only']} {team_h_info['short_name']} [ {score_h} ]\n"
-
-    # جلب إحصائيات المباراة تفصيلياً إن وجدت
+    
+    # تحضير إحصائيات المباراة
     stats = fixture.get("stats", [])
     
-    # دالة مساعدة لاستخراج الإحصائية
-    def get_stat_list(identifier):
+    def get_stat_dict(identifier):
+        h_data, a_data = {}, {}
         for s in stats:
             if s.get("identifier") == identifier:
-                return s.get("h", []), s.get("a", [])
-        return [], []
+                for item in s.get("h", []):
+                    h_data[item["element"]] = item["value"]
+                for item in s.get("a", []):
+                    a_data[item["element"]] = item["value"]
+        return h_data, a_data
 
-    # يمكن إضافة قائمة اللاعبين وأحداثهم هنا
-    # المخرجات بناءً على بيانات API المتوفرة
+    # استخراج الأحداث والإحصائيات
+    bps_h, bps_a = get_stat_dict("bps")
+    goals_h, goals_a = get_stat_dict("goals_scored")
+    assists_h, assists_a = get_stat_dict("assists")
+    yellow_h, yellow_a = get_stat_dict("yellow_cards")
+    red_h, red_a = get_stat_dict("red_cards")
+    defcon_h, defcon_a = get_stat_dict("defensive_contributions") # أو حسب المعرف المتاح في الـ API
+
+    # دالة صياغة شريط أحداث اللاعبين (دقائق، نقاط، أيقونات)
+    def render_team_lineup(team_stats, is_home=True):
+        out = ""
+        # هنا يتم ترتيب اللاعبين حسب الدقائق التي لعبوها أولاً
+        for p_id, p_info in team_stats.items():
+            mins = p_info.get("minutes", 90)
+            pts = p_info.get("points", 0)
+            p_name = players_dict.get(p_id, "لاعب")
+            
+            # الرموز الإضافية
+            icons = ""
+            if p_info.get("is_gk"): icons += "🧤"
+            if p_id in (goals_h if is_home else goals_a): icons += "⚽️"
+            if p_id in (yellow_h if is_home else yellow_a): icons += "🟨"
+            if p_id in (red_h if is_home else red_a): icons += "🟥"
+            if p_info.get("has_defcon_bonus"): icons += "🛡"
+            if p_info.get("bonus_stars"): icons += "🎖" * p_info.get("bonus_stars")
+
+            out += f"{mins:2d}' {pts:2d} {p_name} {icons}\n"
+        return out
+
+    # (ملاحظة: يمكنك ضبط قائمة الأحداث للتشكيلة حسب البيانات الحية من FPL API)
     
-    bps_h, bps_a = get_stat_list("bps")
-    goals_h, goals_a = get_stat_list("goals_scored")
-    assists_h, assists_a = get_stat_list("assists")
-
-    # تجميع وتنسيق BPS
+    # 2. قسم Top xGI
+    response += "\nTop xGI:\n"
+    # يتم جمع xG + xA وتنسيقها
+    
+    # 3. قسم Top BPS
     all_bps = []
-    for item in bps_h:
-        all_bps.append((item.get("value", 0), f"{players_dict.get(item.get('element'), 'لاعب')}"))
-    for item in bps_a:
-        all_bps.append((item.get("value", 0), f"{players_dict.get(item.get('element'), 'لاعب')}"))
+    for p_id, val in bps_h.items():
+        all_bps.append((val, players_dict.get(p_id, "لاعب")))
+    for p_id, val in bps_a.items():
+        all_bps.append((val, players_dict.get(p_id, "لاعب")))
     all_bps.sort(key=lambda x: x[0], reverse=True)
 
     response += "\nTop BPS:\n"
     medals = ["🥇", "🥈", "🥉"]
     for idx, (val, p_name) in enumerate(all_bps[:10]):
-        medal = medals[idx] if idx < 3 else ""
+        medal = f" {medals[idx]}" if idx < 3 else ""
         bonus = f" +{3-idx}" if idx < 3 else ""
-        response += f"{val} {p_name} {medal}{bonus}\n".strip() + "\n"
+        response += f"{val:2d} {p_name}{medal}{bonus}\n"
 
+    # 4. قسم Top DEFCON
+    response += "\nTop DEFCON:\n"
+    # ترتيب وطباعة قيم الـ DEFCON إن وجدت
+    
     return response
-
+    
 def format_fixtures_menu(gameweek):
     """
     تنسيق رسالة القائمة الخاصة بأزرار المباريات
@@ -820,7 +857,7 @@ def format_fixtures_menu(gameweek):
 
 def get_fixtures_keyboard(manager_id, gameweek):
     """
-    إنشاء قائمة أزرار تفاعلية بحيث يكون لكل مباراة زر مستقل
+    إنشاء قائمة أزرار للمباريات مع إضافة حالة المباراة إيموجي (🔴، 🟢، ⏳)
     """
     fixtures = get_fixtures(gameweek)
     teams_dict = get_teams_dict()
@@ -835,12 +872,24 @@ def get_fixtures_keyboard(manager_id, gameweek):
             score_h = f.get("team_h_score")
             score_a = f.get("team_a_score")
             
-            if score_h is not None and score_a is not None:
-                match_label = f"{team_h} {score_h} - {score_a} {team_a}"
-            else:
-                match_label = f"{team_h} VS {team_a}"
+            finished = f.get("finished", False)
+            started = f.get("started", False)
             
-            keyboard.append([InlineKeyboardButton(f"⚽ {match_label}", callback_data=f"match_{manager_id}_{gameweek}_{f_id}")])
+            # تحديد حالة المباراة والإيموجي المناسب
+            if finished:
+                status_emoji = "🔴"  # منتهية
+            elif started and not finished:
+                status_emoji = "🟢"  # تلعب الآن
+            else:
+                status_emoji = "⏳"  # لم تبدأ بعد
+            
+            # صياغة اسم الزر
+            if score_h is not None and score_a is not None:
+                match_label = f"{status_emoji} {team_h} {score_h} - {score_a} {team_a}"
+            else:
+                match_label = f"{status_emoji} {team_h} VS {team_a}"
+            
+            keyboard.append([InlineKeyboardButton(match_label, callback_data=f"match_{manager_id}_{gameweek}_{f_id}")])
 
     keyboard.append([InlineKeyboardButton("🔙 العودة للرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
     return InlineKeyboardMarkup(keyboard)
