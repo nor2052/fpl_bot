@@ -299,7 +299,8 @@ def get_fixtures(gameweek=None):
 
 def get_match_details(fixture_id):
     """جلب تفاصيل المباراة من API"""
-    url = f"{BASE_URL}/fixture/{fixture_id}/"
+    # الرابط الصحيح للمباريات هو /fixtures/ وليس /fixture/
+    url = f"{BASE_URL}/fixtures/{fixture_id}/"
     data = safe_api_request(url, "get_match_details")
     
     if not data:
@@ -322,7 +323,7 @@ def format_match_detail_display(manager_id, info, gameweek, fixture_id):
     
     # حالة خطأ في جلب البيانات
     if status == "error" or match_data is None:
-        return "❌ حدث خطأ أثناء جلب تفاصيل المباراة.", None
+        return "❌ حدث خطأ أثناء جلب تفاصيل المباراة. تأكد من اتصال الإنترنت وحاول مرة أخرى.", None
     
     # حالة المباراة لم تبدأ بعد
     if status == "not_started":
@@ -354,18 +355,25 @@ def format_match_detail_display(manager_id, info, gameweek, fixture_id):
         reply_markup = InlineKeyboardMarkup(keyboard)
         return response, reply_markup
     
-    # حالة المباراة بدأت أو انتهت (الكود الموجود مسبقاً)
+    # حالة المباراة بدأت أو انتهت
     fixture = match_data
-    live_data = get_full_live_data(gameweek)
     teams_dict = get_teams_dict()
     
-    # ... باقي كود تنسيق تفاصيل المباراة كما هو ...
-    # (هنا يوضع الكود الخاص بتفاصيل المباراة الجارية أو المنتهية)
-    
-    # مؤقتاً نعرض رسالة أن المباراة جارية أو انتهت
+    # تحديد حالة المباراة
     finished = fixture.get("finished", False) or fixture.get("finished_provisional", False)
-    status_text = "🔴 انتهت" if finished else "🟢 جارية"
+    started = fixture.get("started", False)
     
+    if finished:
+        status_text = "🔴 انتهت"
+        status_icon = "🔴"
+    elif started:
+        status_text = "🟢 جارية"
+        status_icon = "🟢"
+    else:
+        status_text = "⏳ لم تبدأ"
+        status_icon = "⏳"
+    
+    # معلومات الفرق
     team_h_id = fixture.get("team_h")
     team_a_id = fixture.get("team_a")
     team_h_info = teams_dict.get(team_h_id, {"name": "فريق", "short_name": "؟", "emoji_only": "⚽"})
@@ -374,15 +382,34 @@ def format_match_detail_display(manager_id, info, gameweek, fixture_id):
     team_h_score = fixture.get("team_h_score", 0)
     team_a_score = fixture.get("team_a_score", 0)
     
+    # وقت المباراة
+    kickoff_time = fixture.get("kickoff_time")
+    match_time = format_match_time(kickoff_time) if kickoff_time else "توقيت غير محدد"
+    
     response = (
-        f"{status_text} **{team_h_info['emoji_only']} {team_h_info['name']}** [ {team_h_score} ]\n"
+        f"{status_icon} **{team_h_info['emoji_only']} {team_h_info['name']}** [ {team_h_score} ]\n"
         f"🆚 **{team_a_info['emoji_only']} {team_a_info['name']}** [ {team_a_score} ]\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📊 **تفاصيل المباراة:**\n"
+        f"• الحالة: {status_text}\n"
+        f"• الوقت: {match_time}\n"
         f"• الدقائق: {fixture.get('minutes', 0)}'\n"
-        f"• الحالة: {status_text}\n\n"
-        f"💡 يتم عرض التفاصيل الكاملة عند توفرها..."
     )
+    
+    # إضافة تفاصيل إضافية إذا كانت المباراة انتهت
+    if finished:
+        response += f"• النتيجة النهائية: {team_h_score} - {team_a_score}\n"
+    
+    # محاولة جلب إحصائيات إضافية من live data
+    try:
+        live_data = get_full_live_data(gameweek)
+        if live_data:
+            response += f"\n📈 **إحصائيات حية:**\n"
+            response += f"• عدد اللاعبين المشاركين: {len(live_data)}\n"
+    except:
+        pass
+    
+    response += f"\n💡 يمكنك العودة لاستعراض المباريات الأخرى."
     
     keyboard = [
         [InlineKeyboardButton("🔙 العودة لقائمة المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
@@ -390,8 +417,7 @@ def format_match_detail_display(manager_id, info, gameweek, fixture_id):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    return response, reply_markup
-    
+    return response, reply_markup    
 
 
 def get_teams_dict():
@@ -1720,14 +1746,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 view_type = "detail"
             elif "الدوريات" in current_text:
                 view_type = "leagues"
-            elif "المباريات" in current_text or "نتائج" in current_text:
-                # التحقق إذا كانت في قائمة المباريات أو تفاصيل مباراة
-                if "اختر المباراة" in current_text or "قائمة مباريات" in current_text:
-                    view_type = "fixtures"
-                elif "تفاصيل المباراة" in current_text:
-                    view_type = "fixtures"  # نعود لقائمة المباريات
-                else:
-                    view_type = "fixtures"
+            elif "المباريات" in current_text or "نتائج" in current_text or "قائمة مباريات" in current_text:
+                view_type = "fixtures"
             elif "المواعيد" in current_text:
                 view_type = "deadline"
             elif "تغيرات وتوقعات" in current_text:
@@ -1750,34 +1770,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if view_type == "deadline":
                 text = format_deadline_display(manager_id, info, gameweek)
+                reply_markup = get_buttons(manager_id, gameweek, view_type)
             elif view_type == "price":
                 text = format_price_changes_display(manager_id, info, gameweek)
+                reply_markup = get_buttons(manager_id, gameweek, view_type)
+            elif view_type == "fixtures":
+                history = get_manager_history(manager_id)
+                text, reply_markup = format_fixtures_display(manager_id, info, gameweek, history)
             else:
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
-                
-                if view_type == "fixtures":
-                    text, reply_markup = format_fixtures_display(manager_id, info, gameweek, history)
-                    await context.bot.edit_message_text(
-                        text=text, chat_id=chat_id, message_id=message_id,
-                        parse_mode='Markdown', reply_markup=reply_markup
-                    )
-                    return
-                else:
-                    text_map = {
-                        "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                        "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                        "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                    }
-                    text = text_map.get(view_type, "")
+                text_map = {
+                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                }
+                text = text_map.get(view_type, "")
+                reply_markup = get_buttons(manager_id, gameweek, view_type)
             
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
+                parse_mode='Markdown', reply_markup=reply_markup
             )
             return
         
-        # 9. عرض تفاصيل المباراة المختارة (جديد)
+        # 9. عرض تفاصيل المباراة المختارة
         elif parts[0] == "matchdetail":
             manager_id = parts[1]
             gameweek = int(parts[2])
@@ -1797,9 +1814,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             text, reply_markup = format_match_detail_display(manager_id, info, gameweek, fixture_id)
+            
+            # التأكد من وجود reply_markup
             if reply_markup is None:
                 reply_markup = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 العودة لقائمة المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")]
+                    [InlineKeyboardButton("🔙 العودة لقائمة المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
+                    [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
                 ])
             
             await context.bot.edit_message_text(
@@ -1834,18 +1854,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if view_type == "deadline":
                 text = format_deadline_display(manager_id, info, gameweek)
+                reply_markup = get_buttons(manager_id, gameweek, view_type)
             elif view_type == "price":
                 text = format_price_changes_display(manager_id, info, gameweek)
+                reply_markup = get_buttons(manager_id, gameweek, view_type)
             elif view_type == "fixtures":
-                # استخدام الدالة المعدلة التي تعيد (text, reply_markup)
-                picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
                 text, reply_markup = format_fixtures_display(manager_id, info, gameweek, history)
-                await context.bot.edit_message_text(
-                    text=text, chat_id=chat_id, message_id=message_id,
-                    parse_mode='Markdown', reply_markup=reply_markup
-                )
-                return
             else:
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
@@ -1855,10 +1870,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "leagues": format_leagues_display(manager_id, info, gameweek, history),
                 }
                 text = text_map.get(view_type, "")
+                reply_markup = get_buttons(manager_id, gameweek, view_type)
             
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
+                parse_mode='Markdown', reply_markup=reply_markup
             )
             return
         
