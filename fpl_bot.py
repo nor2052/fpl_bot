@@ -765,7 +765,7 @@ def format_leagues_display(manager_id, info, gameweek, history):
 
 def format_match_detail_display(fixture_id):
     """
-    عرض التشكيلة الكاملة والتفاصيل الإحصائية للفريقين (Spurs / Everton)
+    عرض التشكيلة الكاملة والتفاصيل الإحصائية للفريقين بشكل دقيق
     """
     all_fixtures = get_fixtures()
     fixture = next((f for f in all_fixtures if f.get("id") == fixture_id), None)
@@ -786,9 +786,19 @@ def format_match_detail_display(fixture_id):
     score_h = fixture.get("team_h_score") if fixture.get("team_h_score") is not None else 0
     score_a = fixture.get("team_a_score") if fixture.get("team_a_score") is not None else 0
 
-    # جلب بيانات اللايف للجولة لجلب دقائق ونقاط تشكيلة المباراة
-    live_data = get_gameweek_live_data(gameweek) # دالة جلب https://fantasy.premierleague.com/api/event/{gw}/live/
-    elements_stats = live_data.get("elements", {}) if isinstance(live_data, dict) else {}
+    # جلب بيانات اللايف للجولة
+    live_data = get_gameweek_live_data(gameweek)
+    
+    # تحويل elements إلى قائمة سواء جاء كـ List أو Dict لتفادي الخطأ
+    raw_elements = live_data.get("elements", []) if isinstance(live_data, dict) else []
+    
+    # بناء قاموس محلي للوصول السريع لبيانات كل لاعب بواسطة id
+    elements_dict = {}
+    if isinstance(raw_elements, list):
+        for item in raw_elements:
+            elements_dict[item.get("id")] = item
+    elif isinstance(raw_elements, dict):
+        elements_dict = raw_elements
 
     # استخراج الأحداث من fixture stats
     stats = fixture.get("stats", [])
@@ -810,21 +820,20 @@ def format_match_detail_display(fixture_id):
     bps_h, bps_a = extract_stat_map("bps")
     bonus_h, bonus_a = extract_stat_map("bonus")
 
-    # دالة لبناء نص تشكيلة الفريق (دقيقة، نقاط، اسم، رموز)
+    # دالة لبناء نص تشكيلة الفريق
     def generate_team_section(team_id, team_info, score, is_home):
         text = f"{team_info.get('emoji_only', '⚪')} {team_info.get('name', 'Team')} [ {score} ]\n"
         
-        # تجميع لاعبي هذا الفريق الذين شاركوا في المباراة
         team_players = []
-        for p_id, p_data in elements_stats.items():
-            # التأكد أن اللاعب ينتمي لهذا الفريق ولعب دقائق في الجولة
+        for p_id, p_data in elements_dict.items():
             p_stats = p_data.get("stats", {})
-            p_team = p_data.get("fixture_team_id") or players_dict.get(p_id, {}).get("team")
+            # جلب فريق اللاعب من القاموس العام للاعبين
+            p_team = players_dict.get(p_id, {}).get("team")
             
             if p_team == team_id and p_stats.get("minutes", 0) > 0:
                 team_players.append((p_id, p_stats))
 
-        # ترتيب اللاعبين حسب الأفضلية في الدقائق ثم النقاط
+        # ترتيب اللاعبين حسب الدقائق ثم النقاط
         team_players.sort(key=lambda x: (x[1].get("minutes", 0), x[1].get("total_points", 0)), reverse=True)
 
         for p_id, p_stats in team_players:
@@ -832,7 +841,7 @@ def format_match_detail_display(fixture_id):
             pts = p_stats.get("total_points", 0)
             p_name = players_dict.get(p_id, {}).get("web_name") or f"Player {p_id}"
             
-            # بناء الإيموجيات للأحداث
+            # بناء الإيموجيات
             icons = ""
             if players_dict.get(p_id, {}).get("element_type") == 1: icons += " 🧤"
             if p_id in (goals_h if is_home else goals_a): icons += " ⚽️"
@@ -840,7 +849,7 @@ def format_match_detail_display(fixture_id):
             if p_id in (red_h if is_home else red_a): icons += " 🟥"
             if p_stats.get("defensive_contributions", 0) >= 10: icons += " 🛡"
             
-            # إضافة النجوم للبونص
+            # إضافات البونص
             p_bonus = (bonus_h if is_home else bonus_a).get(p_id, 0)
             if p_bonus > 0:
                 icons += " " + ("🎖" * p_bonus)
@@ -849,19 +858,22 @@ def format_match_detail_display(fixture_id):
             
         return text + "\n"
 
-    # 1. طباعة تشكيلة الفريقين بالكامل
+    # 1. تشكيلة الفريقين
     response = generate_team_section(team_h_id, team_h_info, score_h, is_home=True)
     response += generate_team_section(team_a_id, team_a_info, score_a, is_home=False)
 
-    # 2. قسم Top xGI
+    # 2. Top xGI
     all_xgi = []
-    for p_id, p_data in elements_stats.items():
-        p_stats = p_data.get("stats", {})
-        xg = float(p_stats.get("expected_goals", 0.0))
-        xa = float(p_stats.get("expected_assists", 0.0))
-        if xg + xa > 0:
-            p_name = players_dict.get(p_id, {}).get("web_name", "لاعب")
-            all_xgi.append((xg, xa, xg + xa, p_name))
+    for p_id, p_data in elements_dict.items():
+        # التأكد من أن اللاعب يتبع لأحد الفريقين في المباراة
+        p_team = players_dict.get(p_id, {}).get("team")
+        if p_team in [team_h_id, team_a_id]:
+            p_stats = p_data.get("stats", {})
+            xg = float(p_stats.get("expected_goals", 0.0))
+            xa = float(p_stats.get("expected_assists", 0.0))
+            if xg + xa > 0:
+                p_name = players_dict.get(p_id, {}).get("web_name", "لاعب")
+                all_xgi.append((xg, xa, xg + xa, p_name))
     
     all_xgi.sort(key=lambda x: x[2], reverse=True)
     
@@ -869,7 +881,7 @@ def format_match_detail_display(fixture_id):
     for xg, xa, total, p_name in all_xgi[:10]:
         response += f"{xg:.2f} + {xa:.2f}  {p_name}\n"
 
-    # 3. قسم Top BPS
+    # 3. Top BPS
     all_bps = []
     for p_id, val in bps_h.items():
         all_bps.append((val, players_dict.get(p_id, {}).get("web_name", "لاعب")))
@@ -884,14 +896,16 @@ def format_match_detail_display(fixture_id):
         bonus_add = f" +{3-idx}" if idx < 3 else ""
         response += f"{val:2d} {p_name}{medal}{bonus_add}\n"
 
-    # 4. قسم Top DEFCON
+    # 4. Top DEFCON
     all_defcon = []
-    for p_id, p_data in elements_stats.items():
-        p_stats = p_data.get("stats", {})
-        defcon_val = p_stats.get("defensive_contributions", 0)
-        if defcon_val > 0:
-            p_name = players_dict.get(p_id, {}).get("web_name", "لاعب")
-            all_defcon.append((defcon_val, p_name))
+    for p_id, p_data in elements_dict.items():
+        p_team = players_dict.get(p_id, {}).get("team")
+        if p_team in [team_h_id, team_a_id]:
+            p_stats = p_data.get("stats", {})
+            defcon_val = p_stats.get("defensive_contributions", 0)
+            if defcon_val > 0:
+                p_name = players_dict.get(p_id, {}).get("web_name", "لاعب")
+                all_defcon.append((defcon_val, p_name))
             
     all_defcon.sort(key=lambda x: x[0], reverse=True)
 
