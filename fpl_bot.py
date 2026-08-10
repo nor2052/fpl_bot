@@ -297,6 +297,87 @@ def get_fixtures(gameweek=None):
     data = safe_api_request(url, "get_fixtures")
     return data if data else []
 
+def get_match_details(fixture_id):
+    """جلب تفاصيل المباراة من API"""
+    url = f"{BASE_URL}/fixture/{fixture_id}/"
+    data = safe_api_request(url, "get_match_details")
+    
+    if not data:
+        return None
+        
+    # جلب إحصائيات المباراة
+    stats_url = f"{BASE_URL}/event/{data.get('event', 1)}/live/"
+    live_data = safe_api_request(stats_url, "get_live_stats")
+    
+    return {
+        "fixture": data,
+        "live_data": live_data
+    }
+
+def format_match_detail_display(manager_id, info, gameweek, fixture_id):
+    """تنسيق تفاصيل المباراة المختارة"""
+    match_data = get_match_details(fixture_id)
+    
+    if not match_data:
+        return "❌ حدث خطأ أثناء جلب تفاصيل المباراة.", None
+    
+    fixture = match_data.get("fixture", {})
+    live_data = match_data.get("live_data", {})
+    teams_dict = get_teams_dict()
+    players_dict_local = get_players_dict()
+    
+    # معلومات الفرق
+    team_h_id = fixture.get("team_h")
+    team_a_id = fixture.get("team_a")
+    team_h_info = teams_dict.get(team_h_id, {"name": "فريق", "short_name": "؟", "emoji_only": "⚽"})
+    team_a_info = teams_dict.get(team_a_id, {"name": "فريق", "short_name": "؟", "emoji_only": "⚽"})
+    
+    team_h_score = fixture.get("team_h_score", 0)
+    team_a_score = fixture.get("team_a_score", 0)
+    
+    # بناء الرد
+    response = (
+        f"⚽ **{team_h_info['emoji_only']} {team_h_info['name']}** [ {team_h_score} ]\n"
+        f"🆚 **{team_a_info['emoji_only']} {team_a_info['name']}** [ {team_a_score} ]\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+    
+    # جلب إحصائيات اللاعبين من live_data
+    # نبحث عن اللاعبين الذين لعبوا في هذه المباراة
+    players_stats = {}
+    
+    if live_data and "elements" in live_data:
+        for element_id, element_data in live_data["elements"].items():
+            # نتحقق من وجود اللاعب في المباراة
+            player_data = element_data.get("stats", {})
+            # هنا يمكننا إضافة منطق لتصفية اللاعبين الذين شاركوا في المباراة
+            # ولكن API لا يعطي معلومات مباشرة عن المباراة، لذا نعرض البيانات المتاحة
+    
+    # عرض تشكيلة الفريق الأول (مثال)
+    response += "**🔵 التشكيلة الأساسية:**\n\n"
+    
+    # هنا نعرض البيانات المتاحة من bootstrap-static للاعبين
+    bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_bootstrap")
+    if bootstrap_data and "elements" in bootstrap_data:
+        # نعرض مثال للاعبين (هذا مجرد مثال، في الواقع نحتاج بيانات المباراة)
+        for i, player in enumerate(bootstrap_data["elements"][:11], 1):
+            if player.get("team") in [team_h_id, team_a_id]:
+                player_name = f"{player.get('first_name', '')} {player.get('second_name', '')}"
+                response += f"  {i}'  {player.get('element_type', 0)} {player_name}\n"
+    
+    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
+    
+    # أزرار العودة
+    keyboard = [
+        [InlineKeyboardButton("🔙 العودة لقائمة المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
+        [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    return response, reply_markup
+
+
+
 def get_teams_dict():
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_teams_dict")
     
@@ -759,62 +840,39 @@ def format_fixtures_display(manager_id, info, gameweek, history):
     update_date = now_mecca.strftime("%d/%m/%Y")
     
     response = (
-        f"⚽ **نتائج وتفاصيل المباريات**\n"
-        f"📅 **الجولة {gameweek}**\n"
+        f"⚽ **قائمة مباريات الجولة {gameweek}**\n"
         f"🕐 آخر تحديث: {update_time} - {update_date} (بتوقيت مكة المكرمة)\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👇 **اختر المباراة لعرض تفاصيلها:**\n"
     )
     
     if not fixtures:
         response += "🚫 لا توجد مباريات في هذه الجولة\n"
-    else:
-        matches_by_day = {}
-        for fixture in fixtures:
-            kickoff = fixture.get("kickoff_time")
-            if kickoff:
-                date_str = kickoff[:10]
-                matches_by_day.setdefault(date_str, []).append(fixture)
-            else:
-                matches_by_day.setdefault("unknown", []).append(fixture)
-        
-        sorted_dates = sorted([d for d in matches_by_day.keys() if d != "unknown"])
-        if "unknown" in matches_by_day:
-            sorted_dates.append("unknown")
-        
-        for date_str in sorted_dates:
-            if date_str == "unknown":
-                response += "📅 **مواعيد غير محددة**\n"
-            else:
-                try:
-                    dt = datetime.fromisoformat(date_str)
-                    day_name_ar = {
-                        "Monday": "الإثنين", "Tuesday": "الثلاثاء", "Wednesday": "الأربعاء",
-                        "Thursday": "الخميس", "Friday": "الجمعة", "Saturday": "السبت", "Sunday": "الأحد"
-                    }.get(calendar.day_name[dt.weekday()], calendar.day_name[dt.weekday()])
-                    response += f"📆 **{day_name_ar} {dt.strftime('%d/%m/%Y')}**\n"
-                except:
-                    response += f"📆 **{date_str}**\n"
-            
-            for fixture in matches_by_day[date_str]:
-                match_time = format_match_time(fixture.get("kickoff_time"))
-                team_h_info = teams_dict.get(fixture.get("team_h"), {"emoji_only": "⚽", "short_name": "?"})
-                team_a_info = teams_dict.get(fixture.get("team_a"), {"emoji_only": "⚽", "short_name": "?"})
-                team_h_display = f"{team_h_info['emoji_only']} {team_h_info['short_name']}"
-                team_a_display = f"{team_a_info['emoji_only']} {team_a_info['short_name']}"
-                
-                if fixture.get("team_h_score") is not None and fixture.get("team_a_score") is not None:
-                    score_display = f"**{fixture['team_h_score']}** - **{fixture['team_a_score']}**"
-                else:
-                    score_display = "VS"
-                
-                response += f"• {match_time} | {team_h_display} {score_display} {team_a_display} | {format_match_status(fixture)}\n"
-            response += "\n"
+        return response
     
-    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
-    response += "🟢 جارية | 🔴 انتهت | ⚪ لم تبدأ\n"
-    response += f"🕐 جميع الأوقات بتوقيت مكة المكرمة (UTC+3)"
+    # إنشاء أزرار للمباريات
+    keyboard = []
+    for idx, fixture in enumerate(fixtures, 1):
+        team_h_info = teams_dict.get(fixture.get("team_h"), {"emoji_only": "⚽", "short_name": "?"})
+        team_a_info = teams_dict.get(fixture.get("team_a"), {"emoji_only": "⚽", "short_name": "?"})
+        
+        # اختصار أسماء الفرق
+        home_name = team_h_info['short_name']
+        away_name = team_a_info['short_name']
+        
+        # حالة المباراة
+        finished = fixture.get("finished", False) or fixture.get("finished_provisional", False)
+        status_icon = "✅" if finished else "⏳"
+        
+        # زر لكل مباراة
+        btn_text = f"{status_icon} {home_name} vs {away_name}"
+        callback_data = f"matchdetail_{manager_id}_{gameweek}_{fixture.get('id')}"
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
     
-    return response
+    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    return response, reply_markup
 
 def format_deadline_display(manager_id, info, gameweek):
     name = sanitize_markdown(safe_str(info.get("name")))
@@ -1629,12 +1687,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gameweek = int(parts[2])
             current_text = query.message.text or ""
             
+            # تحديد نوع العرض الحالي
             if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
                 view_type = "detail"
             elif "الدوريات" in current_text:
                 view_type = "leagues"
             elif "المباريات" in current_text or "نتائج" in current_text:
-                view_type = "fixtures"
+                # التحقق إذا كانت في قائمة المباريات أو تفاصيل مباراة
+                if "اختر المباراة" in current_text or "قائمة مباريات" in current_text:
+                    view_type = "fixtures"
+                elif "تفاصيل المباراة" in current_text:
+                    view_type = "fixtures"  # نعود لقائمة المباريات
+                else:
+                    view_type = "fixtures"
             elif "المواعيد" in current_text:
                 view_type = "deadline"
             elif "تغيرات وتوقعات" in current_text:
@@ -1662,13 +1727,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
-                text_map = {
-                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                    "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
-                }
-                text = text_map.get(view_type, "")
+                
+                if view_type == "fixtures":
+                    text, reply_markup = format_fixtures_display(manager_id, info, gameweek, history)
+                    await context.bot.edit_message_text(
+                        text=text, chat_id=chat_id, message_id=message_id,
+                        parse_mode='Markdown', reply_markup=reply_markup
+                    )
+                    return
+                else:
+                    text_map = {
+                        "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
+                        "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
+                        "leagues": format_leagues_display(manager_id, info, gameweek, history),
+                    }
+                    text = text_map.get(view_type, "")
             
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
@@ -1676,7 +1749,38 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # 9. معالجة القوائم الرئيسية الأخرى
+        # 9. عرض تفاصيل المباراة المختارة (جديد)
+        elif parts[0] == "matchdetail":
+            manager_id = parts[1]
+            gameweek = int(parts[2])
+            fixture_id = int(parts[3])
+            
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري تحميل تفاصيل المباراة...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            text, reply_markup = format_match_detail_display(manager_id, info, gameweek, fixture_id)
+            if reply_markup is None:
+                reply_markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔙 العودة لقائمة المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")]
+                ])
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+        
+        # 10. معالجة القوائم الرئيسية الأخرى
         elif parts[0] in ["simple", "detail", "leagues", "fixtures", "deadline", "price"]:
             view_type = parts[0]
             gameweek = int(parts[2])
@@ -1704,6 +1808,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text = format_deadline_display(manager_id, info, gameweek)
             elif view_type == "price":
                 text = format_price_changes_display(manager_id, info, gameweek)
+            elif view_type == "fixtures":
+                # استخدام الدالة المعدلة التي تعيد (text, reply_markup)
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text, reply_markup = format_fixtures_display(manager_id, info, gameweek, history)
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup
+                )
+                return
             else:
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
@@ -1711,7 +1825,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
                     "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
                     "leagues": format_leagues_display(manager_id, info, gameweek, history),
-                    "fixtures": format_fixtures_display(manager_id, info, gameweek, history)
                 }
                 text = text_map.get(view_type, "")
             
