@@ -642,7 +642,7 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             "wildcard": "🛠 بطاقة الوحش (WC)"
         }
         # تم إضافة > للسطر الأول (العنوان)
-        chips_status = "> 🎭 **البطاقات (Chips):**\n"
+        chips_status = "🎭 **البطاقات (Chips):**\n"
         for chip_key, chip_name in chips_info.items():
             all_usages = [c for c in used_chips if c['name'] == chip_key]
             if gameweek <= 19:
@@ -652,14 +652,14 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
             
             # تم إضافة > في بداية كل سطر من الأسطر التالية
             if active_chip == chip_key:
-                chips_status += f"> • **{chip_name}: تلعب الآن 🟢**\n"
+                chips_status += f"• **{chip_name}: تلعب الآن 🟢**\n"
             elif usage:
-                chips_status += f"> • ~~{chip_name}~~: الجولة {usage['event']} 🔴\n"
+                chips_status += f"• ~~{chip_name}~~: الجولة {usage['event']} 🔴\n"
             else:
-                chips_status += f"> • _{chip_name}_: لم تلعب 🟡\n"
+                chips_status += f"• _{chip_name}_: لم تلعب 🟡\n"
         chips_status += "\n"
     else:
-        chips_status = "> 🎭 **حالة البطاقات (Chips):** لا توجد بيانات متاحة حالياً\n\n"
+        chips_status = "🎭 **حالة البطاقات (Chips):** لا توجد بيانات متاحة حالياً\n\n"
         
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
     event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
