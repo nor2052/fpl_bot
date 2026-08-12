@@ -28,6 +28,12 @@ CHANNELS = [
     {"id": "@Fantasyargoal", "name": "القناة الثانية"},
 ]
 
+ADMIN_IDS = [7095210809]  
+
+USERS_SET = set()
+
+awaiting_ad_message = {}
+
 POSITION_OVERRIDES_26_27 = {}
 
 # ============================================================
@@ -1224,6 +1230,341 @@ def get_subscription_button():
     ])
     return InlineKeyboardMarkup(keyboard)
 
+# ============================================================
+# دوال إدارة الأزرار
+# ============================================================
+
+async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """الأمر /admin - لوحة تحكم المدير"""
+    user_id = update.effective_user.id
+    
+    # التحقق من أن المستخدم أدمن
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text(
+            "❌ **عذراً، هذا الأمر متاح للأدمن فقط.**",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # إنشاء أزرار التحكم
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 إحصائيات المستخدمين", callback_data="admin_stats"),
+            InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="admin_ads")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # عرض لوحة التحكم
+    total_users = len(USERS_SET)
+    current_time = datetime.now(timezone.utc) + timedelta(hours=3)
+    time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
+    
+    await update.message.reply_text(
+        f"🔐 **لوحة تحكم المدير**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 المدير: {update.effective_user.first_name}\n"
+        f"🆔 معرفك: `{user_id}`\n"
+        f"👥 عدد المستخدمين: **{total_users}**\n"
+        f"🕐 آخر تحديث: {time_str} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"اختر الإجراء المناسب:",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
+
+async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة أزرار لوحة التحكم"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    data = query.data
+    
+    # التحقق من أن المستخدم أدمن
+    if user_id not in ADMIN_IDS:
+        await query.edit_message_text(
+            "❌ **عذراً، هذا الإجراء متاح للأدمن فقط.**",
+            parse_mode='Markdown'
+        )
+        return
+    
+    if data == "admin_stats":
+        # عرض إحصائيات المستخدمين
+        total_users = len(USERS_SET)
+        current_time = datetime.now(timezone.utc) + timedelta(hours=3)
+        time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
+        
+        # عرض قائمة بأول 20 مستخدم (اختياري)
+        users_list = list(USERS_SET)
+        users_preview = ""
+        if users_list:
+            preview_count = min(20, len(users_list))
+            users_preview = "\n📋 **أول 20 مستخدم:**\n"
+            for i, uid in enumerate(users_list[:preview_count], 1):
+                users_preview += f"{i}. `{uid}`\n"
+            if len(users_list) > 20:
+                users_preview += f"... و {len(users_list) - 20} مستخدم آخر"
+        
+        message = f"""
+📊 **إحصائيات المستخدمين**
+
+👥 إجمالي المستخدمين: **{total_users}**
+
+📅 آخر تحديث: {time_str} (توقيت مكة)
+
+━━━━━━━━━━━━━━━━━━━━━
+💡 يمكنك إرسال إعلان لكل هؤلاء المستخدمين
+{users_preview}
+"""
+        await query.edit_message_text(
+            message,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_back")]
+            ])
+        )
+        
+    elif data == "admin_ads":
+        # عرض قائمة الإعلانات
+        keyboard = [
+            [
+                InlineKeyboardButton("📝 إرسال إعلان جديد", callback_data="ad_new"),
+                InlineKeyboardButton("📢 إرسال إعلان سريع", callback_data="ad_quick")
+            ],
+            [
+                InlineKeyboardButton("📋 معاينة الإعلان", callback_data="ad_preview"),
+                InlineKeyboardButton("❌ إلغاء", callback_data="ad_cancel")
+            ],
+            [
+                InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_back")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"📢 **إدارة الإعلانات**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 عدد المستخدمين المستهدفين: **{len(USERS_SET)}**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"اختر نوع الإعلان الذي تريد إرساله:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        
+    elif data == "ad_new":
+        # طلب كتابة إعلان بتنسيق Markdown
+        awaiting_ad_message[user_id] = "waiting_for_message"
+        
+        await query.edit_message_text(
+            f"✍️ **أرسل نص الإعلان الآن**\n\n"
+            f"📝 يمكنك استخدام Markdown للتنسيق:\n"
+            f"• **نص عريض**\n"
+            f"• *نص مائل*\n"
+            f"• [رابط](https://example.com)\n\n"
+            f"🔹 لإلغاء الإرسال، أرسل /cancel\n"
+            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ إلغاء", callback_data="ad_cancel")]
+            ])
+        )
+        
+    elif data == "ad_quick":
+        # طلب كتابة إعلان سريع (بدون تنسيق)
+        awaiting_ad_message[user_id] = "waiting_for_quick"
+        
+        await query.edit_message_text(
+            f"✍️ **أرسل نص الإعلان السريع**\n\n"
+            f"📝 سيتم إرساله كما هو بدون تنسيق خاص.\n"
+            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم\n"
+            f"🔹 لإلغاء الإرسال، أرسل /cancel",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ إلغاء", callback_data="ad_cancel")]
+            ])
+        )
+        
+    elif data == "ad_preview":
+        # معاينة شكل الإعلان
+        preview_text = """
+📢 **معاينة الإعلان**
+
+هذا هو الشكل الذي سيرسله البوت للمستخدمين.
+
+يمكنك تنسيقه باستخدام Markdown:
+• **نص عريض**
+• *نص مائل*
+• [رابط مثال](https://t.me/your_channel)
+
+⚠️ هذه مجرد معاينة، الإعلان الحقيقي سيكون بناءً على النص الذي ترسله.
+"""
+        await query.edit_message_text(
+            preview_text,
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 العودة لإدارة الإعلانات", callback_data="admin_ads")]
+            ])
+        )
+        
+    elif data == "ad_cancel":
+        # إلغاء الإعلان
+        if user_id in awaiting_ad_message:
+            del awaiting_ad_message[user_id]
+        
+        await query.edit_message_text(
+            "✅ **تم إلغاء عملية الإعلان**",
+            parse_mode='Markdown',
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_back")]
+            ])
+        )
+        
+    elif data == "admin_back":
+        # العودة للوحة التحكم الرئيسية
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 إحصائيات المستخدمين", callback_data="admin_stats"),
+                InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="admin_ads")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        total_users = len(USERS_SET)
+        current_time = datetime.now(timezone.utc) + timedelta(hours=3)
+        time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
+        
+        await query.edit_message_text(
+            f"🔐 **لوحة تحكم المدير**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 المدير: {update.effective_user.first_name}\n"
+            f"🆔 معرفك: `{user_id}`\n"
+            f"👥 عدد المستخدمين: **{total_users}**\n"
+            f"🕐 آخر تحديث: {time_str} (توقيت مكة)\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"اختر الإجراء المناسب:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+
+async def send_ad_to_users(context: ContextTypes.DEFAULT_TYPE, ad_text: str, user_ids: list, is_markdown: bool = True):
+    """إرسال الإعلان لجميع المستخدمين"""
+    success_count = 0
+    fail_count = 0
+    
+    for user_id in user_ids:
+        try:
+            if is_markdown:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=ad_text,
+                    parse_mode='Markdown'
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=ad_text
+                )
+            success_count += 1
+        except Exception as e:
+            fail_count += 1
+            logger.error(f"فشل إرسال الإعلان للمستخدم {user_id}: {e}")
+    
+    return success_count, fail_count
+
+async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة رسائل الإعلان المرسلة من المدير"""
+    user_id = update.effective_user.id
+    message_text = update.message.text
+    
+    # التحقق من أن المستخدم أدمن
+    if user_id not in ADMIN_IDS:
+        return
+    
+    # التحقق من وجود حالة انتظار
+    if user_id not in awaiting_ad_message:
+        return
+    
+    state = awaiting_ad_message[user_id]
+    
+    # إلغاء الإعلان
+    if message_text.lower() == "/cancel":
+        del awaiting_ad_message[user_id]
+        await update.message.reply_text(
+            "✅ **تم إلغاء الإعلان**",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # معالجة الإعلان
+    if state == "waiting_for_message":
+        # إرسال إعلان بتنسيق Markdown
+        await update.message.reply_text(
+            f"🔄 **جاري إرسال الإعلان للمستخدمين...**\n"
+            f"👥 عدد المستخدمين: {len(USERS_SET)}\n"
+            f"⏳ قد يستغرق هذا دقائق...",
+            parse_mode='Markdown'
+        )
+        
+        # إرسال الإعلان
+        success, fail = await send_ad_to_users(
+            context,
+            message_text,
+            list(USERS_SET),
+            is_markdown=True
+        )
+        
+        # حذف حالة الانتظار
+        del awaiting_ad_message[user_id]
+        
+        # إرسال تقرير
+        report = f"""
+✅ **تم إرسال الإعلان بنجاح!**
+
+📊 **التقرير:**
+• تم الإرسال لـ: **{success}** مستخدم
+• فشل الإرسال لـ: **{fail}** مستخدم
+• إجمالي المستخدمين: **{len(USERS_SET)}**
+
+📝 **نص الإعلان:**
+{message_text[:200]}{'...' if len(message_text) > 200 else ''}
+"""
+        await update.message.reply_text(report, parse_mode='Markdown')
+        
+    elif state == "waiting_for_quick":
+        # إرسال إعلان سريع (بدون تنسيق)
+        await update.message.reply_text(
+            f"🔄 **جاري إرسال الإعلان السريع للمستخدمين...**\n"
+            f"👥 عدد المستخدمين: {len(USERS_SET)}",
+            parse_mode='Markdown'
+        )
+        
+        # إرسال الإعلان
+        success, fail = await send_ad_to_users(
+            context,
+            message_text,
+            list(USERS_SET),
+            is_markdown=False
+        )
+        
+        # حذف حالة الانتظار
+        del awaiting_ad_message[user_id]
+        
+        # إرسال تقرير
+        report = f"""
+✅ **تم إرسال الإعلان السريع بنجاح!**
+
+📊 **التقرير:**
+• تم الإرسال لـ: **{success}** مستخدم
+• فشل الإرسال لـ: **{fail}** مستخدم
+• إجمالي المستخدمين: **{len(USERS_SET)}**
+
+📝 **نص الإعلان:**
+{message_text[:200]}{'...' if len(message_text) > 200 else ''}
+"""
+        await update.message.reply_text(report, parse_mode='Markdown')
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -1231,6 +1572,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
     user_id = update.effective_user.id
 
+        # حفظ المستخدم في القائمة إذا لم يكن موجوداً
+    if user_id not in USERS_SET:
+        USERS_SET.add(user_id)
+        logger.info(f"👤 مستخدم جديد: {user_id} - إجمالي المستخدمين: {len(USERS_SET)}")
+    
     try:
         is_subscribed = await check_subscription(context, user_id)
     except Exception as e:
@@ -1522,7 +1868,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2:
         logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
-
+    # معالجة أزرار لوحة التحكم (تبدأ بـ admin_ أو ad_)
+    if data.startswith("admin_") or data.startswith("ad_"):
+        await handle_admin_callback(update, context)
+        return
+    
     if parts[0] == "check":
         logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
         is_subscribed = await check_subscription(context, user_id)
