@@ -1250,7 +1250,7 @@ async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard = [
         [
             InlineKeyboardButton("📊 إحصائيات المستخدمين", callback_data="admin_stats"),
-            InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="admin_ads")
+            InlineKeyboardButton("📢 إرسال إعلان", callback_data="admin_ads")  # تم تغيير النص
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1326,15 +1326,11 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
         
     elif data == "admin_ads":
-        # عرض قائمة الإعلانات
+        # ===== قسم الإعلانات المبسط =====
+        # زر واحد فقط لإرسال الإعلان + زر العودة
         keyboard = [
             [
-                InlineKeyboardButton("📝 إرسال إعلان جديد", callback_data="ad_new"),
-                InlineKeyboardButton("📢 إرسال إعلان سريع", callback_data="ad_quick")
-            ],
-            [
-                InlineKeyboardButton("📋 معاينة الإعلان", callback_data="ad_preview"),
-                InlineKeyboardButton("❌ إلغاء", callback_data="ad_cancel")
+                InlineKeyboardButton("📢 إرسال إعلان", callback_data="ad_send")
             ],
             [
                 InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_back")
@@ -1343,40 +1339,25 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            f"📢 **إدارة الإعلانات**\n"
+            f"📢 **إرسال إعلان للمستخدمين**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
             f"👥 عدد المستخدمين المستهدفين: **{len(USERS_SET)}**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"اختر نوع الإعلان الذي تريد إرساله:",
+            f"📝 **طريقة الإرسال:**\n"
+            f"1️⃣ اضغط على زر '📢 إرسال إعلان'\n"
+            f"2️⃣ أرسل النص الذي تريد نشره\n"
+            f"3️⃣ سيتم إرساله لجميع المستخدمين\n\n"
+            f"🔹 لإلغاء الإرسال، أرسل /cancel",
             parse_mode='Markdown',
             reply_markup=reply_markup
         )
         
-    elif data == "ad_new":
-        # طلب كتابة إعلان بتنسيق Markdown
+    elif data == "ad_send":
+        # طلب كتابة الإعلان
         awaiting_ad_message[user_id] = "waiting_for_message"
         
         await query.edit_message_text(
             f"✍️ **أرسل نص الإعلان الآن**\n\n"
-            f"📝 يمكنك استخدام Markdown للتنسيق:\n"
-            f"• **نص عريض**\n"
-            f"• *نص مائل*\n"
-            f"• [رابط](https://example.com)\n\n"
-            f"🔹 لإلغاء الإرسال، أرسل /cancel\n"
-            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ إلغاء", callback_data="ad_cancel")]
-            ])
-        )
-        
-    elif data == "ad_quick":
-        # طلب كتابة إعلان سريع (بدون تنسيق)
-        awaiting_ad_message[user_id] = "waiting_for_quick"
-        
-        await query.edit_message_text(
-            f"✍️ **أرسل نص الإعلان السريع**\n\n"
-            f"📝 سيتم إرساله كما هو بدون تنسيق خاص.\n"
             f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم\n"
             f"🔹 لإلغاء الإرسال، أرسل /cancel",
             parse_mode='Markdown',
@@ -1385,39 +1366,35 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             ])
         )
         
-    elif data == "ad_preview":
-        # معاينة شكل الإعلان
-        preview_text = """
-📢 **معاينة الإعلان**
-
-هذا هو الشكل الذي سيرسله البوت للمستخدمين.
-
-يمكنك تنسيقه باستخدام Markdown:
-• **نص عريض**
-• *نص مائل*
-• [رابط مثال](https://t.me/your_channel)
-
-⚠️ هذه مجرد معاينة، الإعلان الحقيقي سيكون بناءً على النص الذي ترسله.
-"""
-        await query.edit_message_text(
-            preview_text,
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 العودة لإدارة الإعلانات", callback_data="admin_ads")]
-            ])
-        )
-        
     elif data == "ad_cancel":
-        # إلغاء الإعلان
+        # إلغاء الإعلان والعودة للوحة الإعلانات
         if user_id in awaiting_ad_message:
             del awaiting_ad_message[user_id]
         
+        # العودة لقائمة الإعلانات المبسطة
+        keyboard = [
+            [
+                InlineKeyboardButton("📢 إرسال إعلان", callback_data="ad_send")
+            ],
+            [
+                InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_back")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await query.edit_message_text(
-            "✅ **تم إلغاء عملية الإعلان**",
+            f"✅ **تم إلغاء عملية الإعلان**\n\n"
+            f"📢 **إرسال إعلان للمستخدمين**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 عدد المستخدمين المستهدفين: **{len(USERS_SET)}**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📝 **طريقة الإرسال:**\n"
+            f"1️⃣ اضغط على زر '📢 إرسال إعلان'\n"
+            f"2️⃣ أرسل النص الذي تريد نشره\n"
+            f"3️⃣ سيتم إرساله لجميع المستخدمين\n\n"
+            f"🔹 لإلغاء الإرسال، أرسل /cancel",
             parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 العودة للوحة التحكم", callback_data="admin_back")]
-            ])
+            reply_markup=reply_markup
         )
         
     elif data == "admin_back":
@@ -1425,7 +1402,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard = [
             [
                 InlineKeyboardButton("📊 إحصائيات المستخدمين", callback_data="admin_stats"),
-                InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="admin_ads")
+                InlineKeyboardButton("📢 إرسال إعلان", callback_data="admin_ads")  # تم تغيير النص
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1496,7 +1473,7 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # معالجة الإعلان
+    # معالجة الإعلان (نوع واحد فقط: Markdown)
     if state == "waiting_for_message":
         # إرسال إعلان بتنسيق Markdown
         await update.message.reply_text(
@@ -1520,39 +1497,6 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # إرسال تقرير
         report = f"""
 ✅ **تم إرسال الإعلان بنجاح!**
-
-📊 **التقرير:**
-• تم الإرسال لـ: **{success}** مستخدم
-• فشل الإرسال لـ: **{fail}** مستخدم
-• إجمالي المستخدمين: **{len(USERS_SET)}**
-
-📝 **نص الإعلان:**
-{message_text[:200]}{'...' if len(message_text) > 200 else ''}
-"""
-        await update.message.reply_text(report, parse_mode='Markdown')
-        
-    elif state == "waiting_for_quick":
-        # إرسال إعلان سريع (بدون تنسيق)
-        await update.message.reply_text(
-            f"🔄 **جاري إرسال الإعلان السريع للمستخدمين...**\n"
-            f"👥 عدد المستخدمين: {len(USERS_SET)}",
-            parse_mode='Markdown'
-        )
-        
-        # إرسال الإعلان
-        success, fail = await send_ad_to_users(
-            context,
-            message_text,
-            list(USERS_SET),
-            is_markdown=False
-        )
-        
-        # حذف حالة الانتظار
-        del awaiting_ad_message[user_id]
-        
-        # إرسال تقرير
-        report = f"""
-✅ **تم إرسال الإعلان السريع بنجاح!**
 
 📊 **التقرير:**
 • تم الإرسال لـ: **{success}** مستخدم
