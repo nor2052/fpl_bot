@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationHandlerStop
 
 # ============================================================
 # الإعدادات الأساسية والتكوين
@@ -1449,6 +1450,9 @@ async def send_ad_to_users(context: ContextTypes.DEFAULT_TYPE, ad_text: str, use
     
     return success_count, fail_count
 
+# ⚠️ تأكد من إضافة هذا الاستيراد في أعلى الملف مع باقي الاستيرادات:
+from telegram.ext import ApplicationHandlerStop
+
 async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة رسائل الإعلان المرسلة من المدير"""
     user_id = update.effective_user.id
@@ -1458,24 +1462,25 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in ADMIN_IDS:
         return
     
-    # التحقق من وجود حالة انتظار
+    # التحقق من وجود حالة انتظار إعلان
     if user_id not in awaiting_ad_message:
         return
     
     state = awaiting_ad_message[user_id]
     
-    # إلغاء الإعلان
+    # إلغاء الإعلان عند إرسال /cancel
     if message_text.lower() == "/cancel":
         del awaiting_ad_message[user_id]
         await update.message.reply_text(
             "✅ **تم إلغاء الإعلان**",
             parse_mode='Markdown'
         )
-        return
+        # 🛑 يمنع تمرير أمر الإلغاء للدالة التالية في Group 2
+        raise ApplicationHandlerStop
     
-    # معالجة الإعلان (نوع واحد فقط: Markdown)
+    # معالجة إرسال الإعلان
     if state == "waiting_for_message":
-        # إرسال إعلان بتنسيق Markdown
+        # إشعار البدء بالارسال
         await update.message.reply_text(
             f"🔄 **جاري إرسال الإعلان للمستخدمين...**\n"
             f"👥 عدد المستخدمين: {len(USERS_SET)}\n"
@@ -1483,7 +1488,7 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         
-        # إرسال الإعلان
+        # إرسال الإعلان لجميع المستخدمين
         success, fail = await send_ad_to_users(
             context,
             message_text,
@@ -1491,10 +1496,10 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_markdown=True
         )
         
-        # حذف حالة الانتظار
+        # حذف حالة الانتظار بعد الانتهاء
         del awaiting_ad_message[user_id]
         
-        # إرسال تقرير
+        # إرسال التقرير النهائي للأدمن
         report = f"""
 ✅ **تم إرسال الإعلان بنجاح!**
 
@@ -1507,7 +1512,10 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {message_text[:200]}{'...' if len(message_text) > 200 else ''}
 """
         await update.message.reply_text(report, parse_mode='Markdown')
-
+        
+        # 🛑 يمنع البوت من نقل نص الإعلان لـ Group 2 ومعاملته كمعرف مدرب
+        raise ApplicationHandlerStop
+        
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
@@ -2170,21 +2178,22 @@ def main():
     application.add_handler(CommandHandler("help", handle_message))
     application.add_handler(CommandHandler("admin", handle_admin_command))
     
-    # 2. معالج رسائل الإعلان (أولوية عالية)
+    # 2. معالج الإعلانات في (Group 1)
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ad_message),
         group=1
     )
     
-    # 3. المعالج العام للرسائل (أولوية منخفضة)
+    # 3. المعالج العام للرسائل في (Group 2)
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
         group=2
     )
     
-    # ===== 4. معالج الأزرار =====
+    # 4. معالج الأزرار
     application.add_handler(CallbackQueryHandler(handle_callback))
-    # ============================
+
+    application.run_polling()
         
     print("=" * 50)
     print("🤖 البوت يعمل الآن (الإصدار مع زر المواعيد)")
