@@ -1572,6 +1572,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
     user_id = update.effective_user.id
 
+    if user_id in ADMIN_IDS and user_id in awaiting_ad_message:
+        logger.info(f"⏭️ تخطي معالجة الرسالة من الأدمن {user_id} - في حالة انتظار إعلان")
+        return  # الخروج من الدالة فوراً دون أي إجراء
+
+    
         # حفظ المستخدم في القائمة إذا لم يكن موجوداً
     if user_id not in USERS_SET:
         USERS_SET.add(user_id)
