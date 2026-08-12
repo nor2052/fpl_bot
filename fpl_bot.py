@@ -2202,6 +2202,14 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(CallbackQueryHandler(handle_callback))
 
+        # معالج الرسائل النصية
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # ===== إضافة معالج خاص لرسائل الإعلان =====
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        handle_ad_message
+        
     print("=" * 50)
     print("🤖 البوت يعمل الآن (الإصدار مع زر المواعيد)")
     print(f"📅 آخر جولة لعبت: {current_gameweek}")
