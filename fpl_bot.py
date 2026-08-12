@@ -2196,20 +2196,31 @@ current_gameweek = get_current_gameweek()
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
+    
+    # ===== 1. الأوامر (Command Handlers) =====
     application.add_handler(CommandHandler("start", handle_message))
     application.add_handler(CommandHandler("help", handle_message))
     application.add_handler(CommandHandler("admin", handle_admin_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(CallbackQueryHandler(handle_callback))
-
-    # معالج الرسائل النصية
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(CommandHandler("myid", handle_message))  # مؤقت
+    # =========================================
     
-    # ===== إضافة معالج خاص لرسائل الإعلان =====
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        handle_ad_message
-    ))
+    # ===== 2. معالج رسائل الإعلان (يجب أن يكون الأول بين معالجات الرسائل) =====
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ad_message),
+        group=1  # الأولوية الأعلى
+    )
+    # ===================================================================
+    
+    # ===== 3. المعالج العام للرسائل (يأتي بعد معالج الإعلانات) =====
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
+        group=2  # الأولوية الأقل
+    )
+    # ================================================================
+    
+    # ===== 4. معالج الأزرار =====
+    application.add_handler(CallbackQueryHandler(handle_callback))
+    # ============================
         
     print("=" * 50)
     print("🤖 البوت يعمل الآن (الإصدار مع زر المواعيد)")
