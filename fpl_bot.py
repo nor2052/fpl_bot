@@ -28,7 +28,7 @@ CHANNELS = [
     {"id": "@Fantasyargoal", "name": "القناة الثانية"},
 ]
 
-ADMIN_IDS = [7095210809]  
+ADMIN_IDS = [7095210809, 2046683919, 1401110823]  
 
 USERS_SET = set()
 
@@ -1516,16 +1516,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
     user_id = update.effective_user.id
 
+    # ============================================================
+    # ✅ التحقق المسبق: إذا كان المستخدم أدمن وفي حالة انتظار إعلان
+    # ============================================================
     if user_id in ADMIN_IDS and user_id in awaiting_ad_message:
-        logger.info(f"⏭️ تخطي معالجة الرسالة من الأدمن {user_id} - في حالة انتظار إعلان")
-        return  # الخروج من الدالة فوراً دون أي إجراء
+        logger.info(f"⏭️ تم تجاهل رسالة من الأدمن {user_id} - في حالة انتظار إعلان")
+        return  # الخروج فوراً دون أي معالجة إضافية
 
-    
-        # حفظ المستخدم في القائمة إذا لم يكن موجوداً
+    # ============================================================
+    # حفظ المستخدم في القائمة إذا لم يكن موجوداً
+    # ============================================================
     if user_id not in USERS_SET:
         USERS_SET.add(user_id)
         logger.info(f"👤 مستخدم جديد: {user_id} - إجمالي المستخدمين: {len(USERS_SET)}")
     
+    # ============================================================
+    # التحقق من الاشتراك في القنوات
+    # ============================================================
     try:
         is_subscribed = await check_subscription(context, user_id)
     except Exception as e:
@@ -1548,6 +1555,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # ============================================================
+    # معالجة أوامر /start و /help
+    # ============================================================
     if message_text.startswith(('/start', '/help')):
         welcome_text = (
             "✨ **مرحباً بك في بوت مساعد الفانتاسي!** ✨\n\n"
@@ -1571,6 +1581,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(welcome_text, parse_mode='Markdown')
         return
 
+    # ============================================================
+    # محاولة تحويل النص إلى رقم معرف المدرب
+    # ============================================================
     try:
         manager_id = int(message_text)
         context.user_data['current_manager_id'] = manager_id
@@ -1581,6 +1594,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # ============================================================
+    # جلب بيانات المدرب من API
+    # ============================================================
     msg_checking = await update.message.reply_text(f"🔄 جاري التحقق من المعرف {manager_id}...")
     info = get_manager_info(manager_id)
 
@@ -1600,6 +1616,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
+    # ============================================================
+    # جلب التشكيلة والتاريخ وعرض البيانات
+    # ============================================================
     picks_data = get_manager_picks(manager_id, start_gameweek)
     history = get_manager_history(manager_id)
     text = format_simple_display(manager_id, info, start_gameweek, picks_data, history)
@@ -1612,7 +1631,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"فشل حذف الرسائل المؤقتة: {e}")
 
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
-
+    
 def get_teams_keyboard(manager_id, gameweek):
     teams_dict = get_teams_dict()
     keyboard = []
@@ -2146,26 +2165,22 @@ current_gameweek = get_current_gameweek()
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # ===== 1. الأوامر (Command Handlers) =====
+    # 1. الأوامر
     application.add_handler(CommandHandler("start", handle_message))
     application.add_handler(CommandHandler("help", handle_message))
     application.add_handler(CommandHandler("admin", handle_admin_command))
-    application.add_handler(CommandHandler("myid", handle_message))  # مؤقت
-    # =========================================
     
-    # ===== 2. معالج رسائل الإعلان (يجب أن يكون الأول بين معالجات الرسائل) =====
+    # 2. معالج رسائل الإعلان (أولوية عالية)
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ad_message),
-        group=1  # الأولوية الأعلى
+        group=1
     )
-    # ===================================================================
     
-    # ===== 3. المعالج العام للرسائل (يأتي بعد معالج الإعلانات) =====
+    # 3. المعالج العام للرسائل (أولوية منخفضة)
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
-        group=2  # الأولوية الأقل
+        group=2
     )
-    # ================================================================
     
     # ===== 4. معالج الأزرار =====
     application.add_handler(CallbackQueryHandler(handle_callback))
