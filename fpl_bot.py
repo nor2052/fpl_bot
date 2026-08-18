@@ -439,6 +439,75 @@ def get_gameweek_stats(gameweek):
 # دوال عرض المعلومات - المعدلة حسب كود fpl_bot
 # ============================================================
 
+def format_fdr_display(manager_id, info, start_gw):
+    """تنسيق عرض صعوبة المباريات لـ 20 فريقاً لوليتين قادمتين"""
+    name = sanitize_markdown(safe_str(info.get("name")))
+    
+    # 1. جلب بيانات الفرق والمباريات من الـ API
+    bootstrap = safe_api_request(f"{BASE_URL}/bootstrap-static/", "fdr_bootstrap")
+    fixtures = get_fixtures() or []
+    
+    if not bootstrap or "teams" not in bootstrap:
+        return "❌ تعذر جلب بيانات صعوبة المباريات حالياً."
+    
+    teams = {t["id"]: t for t in bootstrap["teams"]}
+    
+    gw1 = start_gw
+    gw2 = start_gw + 1 if start_gw < 38 else 38
+    
+    response = (
+        f"📊 **صعوبة المباريات (FDR)**\n"
+        f"👤 {name}\n"
+        f"🗓 **الجولتان:** {gw1} - {gw2}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+    
+    fdr_emojis = {1: "🟢", 2: "🟡", 3: "⚪", 4: "🟠", 5: "🔴"}
+    
+    # 2. بناء بيانات كل فريق للجولتين
+    for team_id, team_info in sorted(teams.items(), key=lambda x: x[1]["name"]):
+        team_short = team_info.get("short_name", "???")
+        
+        gw1_matches = []
+        gw2_matches = []
+        
+        for f in fixtures:
+            event = f.get("event")
+            if event == gw1:
+                if f.get("team_h") == team_id:
+                    opp_id = f.get("team_a")
+                    opp_short = teams.get(opp_id, {}).get("short_name", "???")
+                    diff = f.get("team_h_difficulty", 3)
+                    gw1_matches.append(f"{opp_short}(H) {fdr_emojis.get(diff, '⚪')}{diff}")
+                elif f.get("team_a") == team_id:
+                    opp_id = f.get("team_h")
+                    opp_short = teams.get(opp_id, {}).get("short_name", "???")
+                    diff = f.get("team_a_difficulty", 3)
+                    gw1_matches.append(f"{opp_short}(A) {fdr_emojis.get(diff, '⚪')}{diff}")
+            
+            elif event == gw2:
+                if f.get("team_h") == team_id:
+                    opp_id = f.get("team_a")
+                    opp_short = teams.get(opp_id, {}).get("short_name", "???")
+                    diff = f.get("team_h_difficulty", 3)
+                    gw2_matches.append(f"{opp_short}(H) {fdr_emojis.get(diff, '⚪')}{diff}")
+                elif f.get("team_a") == team_id:
+                    opp_id = f.get("team_h")
+                    opp_short = teams.get(opp_id, {}).get("short_name", "???")
+                    diff = f.get("team_a_difficulty", 3)
+                    gw2_matches.append(f"{opp_short}(A) {fdr_emojis.get(diff, '⚪')}{diff}")
+        
+        gw1_str = " | ".join(gw1_matches) if gw1_matches else "BLANK"
+        gw2_str = " | ".join(gw2_matches) if gw2_matches else "BLANK"
+        
+        response += (
+            f"🛡️ **{team_short}**\n"
+            f"├ GW{gw1}: {gw1_str}\n"
+            f"└ GW{gw2}: {gw2_str}\n\n"
+        )
+        
+    return response
+
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     """عرض مبسط لمعلومات المدرب - مطابق لكود fpl_bot"""
     name = sanitize_markdown(safe_str(info.get("name")))
@@ -830,6 +899,22 @@ def format_deadline_display(manager_id, info, gameweek):
 # دوال الأزرار ومعالجات البوت - المعدلة
 # ============================================================
 
+def get_fdr_keyboard(manager_id, gameweek):
+    """أزرار الانتقال بين الجولات والعودة للقائمة الرئيسية لصفحة FDR"""
+    prev_gw = gameweek - 1 if gameweek > 1 else 37
+    next_gw = gameweek + 1 if gameweek < 37 else 1
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("⬅️ القائمة السابقة", callback_data=f"fdr_{manager_id}_{prev_gw}"),
+            InlineKeyboardButton("➡️ القائمة التالية", callback_data=f"fdr_{manager_id}_{next_gw}")
+        ],
+        [
+            InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
 def get_buttons(manager_id, gameweek, current_view):
     """أزرار القائمة الرئيسية - مطابقة لكود fpl_bot"""
     next_gw = get_next_gameweek(gameweek)
@@ -840,8 +925,9 @@ def get_buttons(manager_id, gameweek, current_view):
         [InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}"),
          InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
-         InlineKeyboardButton("📈 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
-        [InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
+         InlineKeyboardButton("💰 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
+        [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data=f"fdr_{manager_id}_{gameweek}"),
+         InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
@@ -964,8 +1050,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             f"📝 **طريقة الإرسال:**\n"
             f"1️⃣ اضغط على زر '📢 إرسال إعلان'\n"
             f"2️⃣ أرسل النص الذي تريد نشره\n"
-            f"3️⃣ سيتم إرساله لجميع المستخدمين\n\n"
-            f"🔹 لإلغاء الإرسال، أرسل /cancel",
+            f"3️⃣ سيتم إرساله لجميع المستخدمين\n\n",
             parse_mode='Markdown',
             reply_markup=reply_markup
         )
@@ -1611,7 +1696,6 @@ def format_price_changes_display(manager_id, info, gameweek):
 # ============================================================
 # معالج الأزرار (Callback) المعدل
 # ============================================================
-
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
@@ -1838,6 +1922,33 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # --- قسم FDR الجديد الخاص بشرط fdr ---
+        elif parts[0] == "fdr":
+            gameweek = int(parts[2])
+            
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري تحميل جدول صعوبة المباريات للجولتين {gameweek} و {gameweek+1}...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+
+            text = format_fdr_display(manager_id, info, gameweek)
+            reply_markup = get_fdr_keyboard(manager_id, gameweek)
+
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+
+        # --- تعديل التنقل nav ليدعم fdr ---
         elif parts[0] == "nav":
             gameweek = int(parts[2])
             current_text = query.message.text or ""
@@ -1850,6 +1961,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 view_type = "deadline"
             elif "تغيرات وتوقعات" in current_text:
                 view_type = "price"
+            elif "صعوبة المباريات" in current_text:
+                view_type = "fdr"
             else:
                 view_type = "detail"
 
@@ -1866,7 +1979,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-            if view_type == "deadline":
+            if view_type == "fdr":
+                text = format_fdr_display(manager_id, info, gameweek)
+                reply_markup = get_fdr_keyboard(manager_id, gameweek)
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup
+                )
+                return
+            elif view_type == "deadline":
                 text = format_deadline_display(manager_id, info, gameweek)
             elif view_type == "price":
                 text = format_price_changes_display(manager_id, info, gameweek)
@@ -1892,7 +2013,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        elif parts[0] in ["detail", "leagues", "deadline", "price"]:
+        # --- تعديل شروط العروض لتقبل "fdr" وقواميس النصوص ---
+        elif parts[0] in ["detail", "leagues", "deadline", "price", "fdr"]:
             view_type = parts[0]
             gameweek = int(parts[2])
 
@@ -1900,7 +2022,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "detail": "عرض معلومات المدرب",
                 "leagues": "الدوريات والمواسم",
                 "deadline": "مواعيد الجولة",
-                "price": "توقعات وتغيرات الأسعار"
+                "price": "توقعات وتغيرات الأسعار",
+                "fdr": "جدول صعوبة المباريات"
             }
 
             await context.bot.edit_message_text(
@@ -1916,7 +2039,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-            if view_type == "deadline":
+            if view_type == "fdr":
+                text = format_fdr_display(manager_id, info, gameweek)
+                reply_markup = get_fdr_keyboard(manager_id, gameweek)
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup
+                )
+                return
+            elif view_type == "deadline":
                 text = format_deadline_display(manager_id, info, gameweek)
             elif view_type == "price":
                 text = format_price_changes_display(manager_id, info, gameweek)
