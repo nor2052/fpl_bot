@@ -1727,66 +1727,28 @@ def get_subscription_button():
 # ============================================================
 
 
-async def league_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض ترتيب الدوري"""
+async def league_command(update, context):
     user_id = update.effective_user.id
-    
-    # التحقق من الاشتراك في القنوات
-    is_subscribed = await check_subscription(context, user_id)
-    if not is_subscribed:
-        await update.message.reply_text(
-            "🔒 **يرجى الاشتراك في القنوات أولاً!**\n"
-            "استخدم /start للتحقق من الاشتراك.",
-            parse_mode='Markdown'
-        )
-        return
-    
-    # الحصول على معرف المدرب من context
-    manager_id = context.user_data.get('current_manager_id')
-    
+    manager_id = context.user_data.get("manager_id") # أو طريقة جلبك لمعرف المدرب
+
     if not manager_id:
-        await update.message.reply_text(
-            "❌ **يرجى إرسال معرف مدربك أولاً!**\n\n"
-            "أرسل رقم معرفك لبدء استخدام البوت.\n"
-            "مثال: `2794801`",
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text("⚠️ يرجى إرسال رقم مدربك (Manager ID) أولاً لاستعراض بيانات الدوري.")
         return
-    
-    # التحقق من اشتراك المدرب في الدوري
-    if not is_user_in_league(manager_id, LEAGUE_ID):
+
+    LEAGUE_ID = 1185162
+
+    # التحقق من الاشتراك فقط داخل هذا الأمر
+    if is_user_in_league(manager_id, LEAGUE_ID):
+        # 🟢 هنا تضع كود عرض تفاصيل الدوري (الترتيب، النقاط، إلخ)
+        await update.message.reply_text("📊 **بيانات الدوري الخاص بك:**\n\n[ضع معلومات الدوري هنا]")
+    else:
+        # 🔴 إذا لم يكن مشتركاً
         await update.message.reply_text(
-            f"🏆 **عذراً، أنت غير مشترك في الدوري الخاص!**\n\n"
-            f"📌 **الدوري:** {LEAGUE_NAME}\n"
-            f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
-            f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
-            f"🔗 **رابط الدوري:**\n"
-            f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/standings`\n\n"
-            f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
-            parse_mode='Markdown'
+            "🏆 **أنت غير مشترك في هذا الدوري حالياً.**\n\n"
+            "للانضمام واستعراض الترتيب، استخدم الرابط التالي:\n"
+            "https://fantasy.premierleague.com/leagues/auto-join/wmvdke"
         )
-        return
-    
-    # جلب بيانات الدوري
-    msg = await update.message.reply_text("🔄 جاري تحميل ترتيب الدوري...")
-    
-    try:
-        text, total_pages = format_league_display(LEAGUE_ID, page=1, per_page=10, manager_id=manager_id, league_type="classic")
         
-        if text and total_pages:
-            keyboard = get_league_keyboard(LEAGUE_ID, 1, total_pages, manager_id, league_type="classic")
-            await msg.delete()
-            await update.message.reply_text(
-                text=text,
-                parse_mode='Markdown',
-                reply_markup=keyboard
-            )
-        else:
-            await msg.edit_text("❌ حدث خطأ في تحميل بيانات الدوري")
-            
-    except Exception as e:
-        logger.error(f"خطأ في عرض الدوري: {e}")
-        await msg.edit_text(f"❌ حدث خطأ: {str(e)[:100]}")
         
 async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """الأمر /admin - لوحة تحكم المدير"""
@@ -2155,22 +2117,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ============================================================
-    # التحقق من اشتراك المدرب في الدوري الخاص
-    # ============================================================
-    if not is_user_in_league(manager_id, LEAGUE_ID):
-        await update.message.reply_text(
-            f"🏆 **عذراً، أنت غير مشترك في الدوري الخاص!**\n\n"
-            f"📌 **الدوري:** {LEAGUE_NAME}\n"
-            f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
-            f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
-            f"🔗 **رابط الدوري:**\n"
-            f"اضغط على الرابط للانضمام:\n"
-            f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/standings`\n\n"
-            f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
-            parse_mode='Markdown'
-        )
-        return
 
     # ============================================================
     # جلب بيانات المدرب من API
@@ -2456,19 +2402,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # التحقق من اشتراك المدرب في الدوري
-            if not is_user_in_league(manager_id, LEAGUE_ID):
-                await query.edit_message_text(
-                    text=f"🏆 **عذراً، أنت غير مشترك في الدوري الخاص!**\n\n"
-                         f"📌 **الدوري:** {LEAGUE_NAME}\n"
-                         f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
-                         f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
-                         f"🔗 **رابط الدوري:**\n"
-                         f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/standings`\n\n"
-                         f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
-                    parse_mode='Markdown'
-                )
-                return
             
             await query.edit_message_text(f"🔄 جاري تحميل {'كأس' if league_type == 'h2h' else ''} الدوري...")
             
@@ -2674,23 +2607,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ============================================================
-    # التحقق من اشتراك المدرب في الدوري الخاص
-    # ============================================================
-    if not is_user_in_league(manager_id, LEAGUE_ID):
-        await context.bot.edit_message_text(
-            text=f"🏆 **عذراً، أنت غير مشترك في الدوري الخاص!**\n\n"
-                 f"📌 **الدوري:** {LEAGUE_NAME}\n"
-                 f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
-                 f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
-                 f"🔗 **رابط الدوري:**\n"
-                 f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/standings`\n\n"
-                 f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
-            chat_id=chat_id,
-            message_id=message_id,
-            parse_mode='Markdown'
-        )
-        return
+
 
     # ============================================================
     # معالجة الأزرار المختلفة
