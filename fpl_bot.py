@@ -1524,13 +1524,18 @@ def get_league_entries(league_id):
     return []
 
 def is_user_in_league(manager_id, league_id):
-    """التحقق من أن المدرب مشترك في الدوري بالبحث عبر كافة الصفحات"""
+    """التحقق من وجود المدرب مع تحويل الأنواع لتجنب أخطاء المطابقة"""
+    try:
+        target_id = int(manager_id)
+    except (ValueError, TypeError):
+        return False
+
     all_entries = get_all_league_entries(league_id)
     for entry in all_entries:
-        if entry.get("entry") == manager_id:
+        if entry.get("entry") == target_id:
             return True
+            
     return False
-
 # ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
