@@ -440,8 +440,24 @@ def get_gameweek_stats(gameweek):
 # ============================================================
 
 def format_fdr_display(manager_id, info, start_gw):
-    """تنسيق عرض صعوبة المباريات لـ 20 فريقاً لوليتين قادمتين"""
+    """تنسيق عرض صعوبة المباريات لـ 20 فريقاً لوليتين قادمتين مع إيموجي الفرق"""
     name = sanitize_markdown(safe_str(info.get("name")))
+    
+    # قاموس إيموجيز الفرق
+    team_emojis = {
+        "Arsenal": "🔫", "Aston Villa": "🏰", "Bournemouth": "🍒", "Brentford": "🐝",
+        "Brighton and Hove Albion": "🐦", "Brighton": "🐦", "Chelsea": "🦁", "Crystal Palace": "🦅",
+        "Everton": "🍬", "Fulham": "🏁", "Leicester City": "🦊",
+        "Liverpool": "🐦‍🔥", "Manchester City": "💎", "Manchester United": "🔱", "Newcastle United": "🐦‍⬛",
+        "Nottingham Forest": "🎋", "Southampton": "⚪", "Tottenham Hotspur": "🐔",
+        "Coventry City": "🐘", "Ipswich Town": "🎠", "Hull City": "🐯",
+        "Leeds United": "🦚", "Sunderland": "🐈",
+        "ARS": "🔫", "AVL": "🏰", "BOU": "🍒", "BRE": "🐝", "BHA": "🐦", "CHE": "🦁",
+        "CRY": "🦅", "EVE": "🍬", "FUL": "🏁", "LEI": "🦊", "LIV": "🐦‍🔥",
+        "MCI": "💎", "MUN": "🔱", "NEW": "🐦‍⬛", "NFO": "🎋", "SOU": "⚪", "TOT": "🐔",
+        "COV": "🐘", "IPS": "🎠", "HUL": "🐯",
+        "LEE": "🦚", "SUN": "🐈"
+    }
     
     # 1. جلب بيانات الفرق والمباريات من الـ API
     bootstrap = safe_api_request(f"{BASE_URL}/bootstrap-static/", "fdr_bootstrap")
@@ -462,11 +478,14 @@ def format_fdr_display(manager_id, info, start_gw):
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
     )
     
-    fdr_emojis = {1: "🟢", 2: "🟡", 3: "⚪", 4: "🟠", 5: "🔴"}
+    fdr_emojis = {1: "🟢", 2: "🟢", 3: "⚪", 4: "🔴", 5: "🔴"}
     
     # 2. بناء بيانات كل فريق للجولتين
     for team_id, team_info in sorted(teams.items(), key=lambda x: x[1]["name"]):
         team_short = team_info.get("short_name", "???")
+        team_name = team_info.get("name", "")
+        # إحضار إيموجي الفريق الأساسي
+        t_emoji = team_emojis.get(team_short) or team_emojis.get(team_name, "🛡️")
         
         gw1_matches = []
         gw2_matches = []
@@ -476,37 +495,46 @@ def format_fdr_display(manager_id, info, start_gw):
             if event == gw1:
                 if f.get("team_h") == team_id:
                     opp_id = f.get("team_a")
-                    opp_short = teams.get(opp_id, {}).get("short_name", "???")
+                    opp_info = teams.get(opp_id, {})
+                    opp_short = opp_info.get("short_name", "???")
+                    opp_emoji = team_emojis.get(opp_short) or team_emojis.get(opp_info.get("name"), "")
                     diff = f.get("team_h_difficulty", 3)
-                    gw1_matches.append(f"{opp_short}(H) {fdr_emojis.get(diff, '⚪')}{diff}")
+                    gw1_matches.append(f"{opp_emoji}{opp_short}(H) {fdr_emojis.get(diff, '⚪')}{diff}")
                 elif f.get("team_a") == team_id:
                     opp_id = f.get("team_h")
-                    opp_short = teams.get(opp_id, {}).get("short_name", "???")
+                    opp_info = teams.get(opp_id, {})
+                    opp_short = opp_info.get("short_name", "???")
+                    opp_emoji = team_emojis.get(opp_short) or team_emojis.get(opp_info.get("name"), "")
                     diff = f.get("team_a_difficulty", 3)
-                    gw1_matches.append(f"{opp_short}(A) {fdr_emojis.get(diff, '⚪')}{diff}")
+                    gw1_matches.append(f"{opp_emoji}{opp_short}(A) {fdr_emojis.get(diff, '⚪')}{diff}")
             
             elif event == gw2:
                 if f.get("team_h") == team_id:
                     opp_id = f.get("team_a")
-                    opp_short = teams.get(opp_id, {}).get("short_name", "???")
+                    opp_info = teams.get(opp_id, {})
+                    opp_short = opp_info.get("short_name", "???")
+                    opp_emoji = team_emojis.get(opp_short) or team_emojis.get(opp_info.get("name"), "")
                     diff = f.get("team_h_difficulty", 3)
-                    gw2_matches.append(f"{opp_short}(H) {fdr_emojis.get(diff, '⚪')}{diff}")
+                    gw2_matches.append(f"{opp_emoji}{opp_short}(H) {fdr_emojis.get(diff, '⚪')}{diff}")
                 elif f.get("team_a") == team_id:
                     opp_id = f.get("team_h")
-                    opp_short = teams.get(opp_id, {}).get("short_name", "???")
+                    opp_info = teams.get(opp_id, {})
+                    opp_short = opp_info.get("short_name", "???")
+                    opp_emoji = team_emojis.get(opp_short) or team_emojis.get(opp_info.get("name"), "")
                     diff = f.get("team_a_difficulty", 3)
-                    gw2_matches.append(f"{opp_short}(A) {fdr_emojis.get(diff, '⚪')}{diff}")
+                    gw2_matches.append(f"{opp_emoji}{opp_short}(A) {fdr_emojis.get(diff, '⚪')}{diff}")
         
         gw1_str = " | ".join(gw1_matches) if gw1_matches else "BLANK"
         gw2_str = " | ".join(gw2_matches) if gw2_matches else "BLANK"
         
         response += (
-            f"🛡️ **{team_short}**\n"
+            f"{t_emoji} **{team_short}**\n"
             f"├ GW{gw1}: {gw1_str}\n"
             f"└ GW{gw2}: {gw2_str}\n\n"
         )
         
     return response
+    
 
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     """عرض مبسط لمعلومات المدرب - مطابق لكود fpl_bot"""
@@ -910,7 +938,7 @@ def get_fdr_keyboard(manager_id, gameweek):
             InlineKeyboardButton("➡️ القائمة التالية", callback_data=f"fdr_{manager_id}_{next_gw}")
         ],
         [
-            InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")
+            InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
