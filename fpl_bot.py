@@ -6,13 +6,10 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from telegram.ext import ApplicationHandlerStop
-import psycopg2
 
 # ============================================================
 # الإعدادات الأساسية والتكوين
 # ============================================================
-
-DATABASE_URL = os.environ.get("DATABASE_URL")
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -34,50 +31,7 @@ CHANNELS = [
 
 ADMIN_IDS = [7095210809, 2046683919, 1401110823]  
 
-def init_db():
-    if not DATABASE_URL:
-        return
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id BIGINT PRIMARY KEY,
-            first_name TEXT,
-            username TEXT
-        )
-    ''')
-    conn.commit()
-    cursor.close()
-    conn.close()
-    
-def add_user(user_id: int, first_name: str, username: str):
-    if not DATABASE_URL:
-        return
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO users (user_id, first_name, username) 
-        VALUES (%s, %s, %s)
-        ON CONFLICT (user_id) 
-        DO UPDATE SET first_name = EXCLUDED.first_name, username = EXCLUDED.username
-    ''', (user_id, first_name, username))
-    conn.commit()
-    cursor.close()
-    conn.close()
-
-def get_all_users() -> set:
-    if not DATABASE_URL:
-        return set()
-    conn = psycopg2.connect(DATABASE_URL)
-    cursor = conn.cursor()
-    cursor.execute('SELECT user_id FROM users')
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
-    return {row[0] for row in rows}
-
-# تهيئة قاعدة البيانات وإنشاء الجدول فور تشغيل الملف
-init_db()
+USERS_SET = set()
 
 awaiting_ad_message = {}
 
@@ -1040,7 +994,7 @@ async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    total_users = len(get_all_users())
+    total_users = len(USERS_SET)
     current_time = datetime.now(timezone.utc) + timedelta(hours=3)
     time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
     
@@ -1072,13 +1026,11 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     if data == "admin_stats":
-        all_users = get_all_users()
-        total_users = len(all_users)
-        users_list = list(all_users)
+        total_users = len(USERS_SET)
         current_time = datetime.now(timezone.utc) + timedelta(hours=3)
         time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
         
-        users_list = list(get_all_users())
+        users_list = list(USERS_SET)
         users_preview = ""
         if users_list:
             preview_count = min(20, len(users_list))
@@ -1121,7 +1073,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(
             f"📢 **إرسال إعلان للمستخدمين**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 عدد المستخدمين المستهدفين: **{len(get_all_users())}**\n"
+            f"👥 عدد المستخدمين المستهدفين: **{len(USERS_SET)}**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📝 **طريقة الإرسال:**\n"
             f"1️⃣ اضغط على زر '📢 إرسال إعلان'\n"
@@ -1136,7 +1088,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         
         await query.edit_message_text(
             f"✍️ **أرسل نص الإعلان الآن**\n\n"
-            f"👥 سيتم الإرسال لـ **{len(get_all_users())}** مستخدم\n"
+            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم\n"
             f"🔹 لإلغاء الإرسال، أرسل /cancel",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
@@ -1162,7 +1114,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             f"✅ **تم إلغاء عملية الإعلان**\n\n"
             f"📢 **إرسال إعلان للمستخدمين**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 عدد المستخدمين المستهدفين: **{len(get_all_users())}**\n"
+            f"👥 عدد المستخدمين المستهدفين: **{len(USERS_SET)}**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📝 **طريقة الإرسال:**\n"
             f"1️⃣ اضغط على زر '📢 إرسال إعلان'\n"
@@ -1182,8 +1134,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        all_users = get_all_users()
-        total_users = len(all_users)
+        total_users = len(USERS_SET)
         current_time = datetime.now(timezone.utc) + timedelta(hours=3)
         time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
         
@@ -1247,7 +1198,7 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "waiting_for_message":
         await update.message.reply_text(
             f"🔄 **جاري إرسال الإعلان للمستخدمين...**\n"
-            f"👥 عدد المستخدمين: {len(get_all_users())}\n"
+            f"👥 عدد المستخدمين: {len(USERS_SET)}\n"
             f"⏳ قد يستغرق هذا دقائق...",
             parse_mode='Markdown'
         )
@@ -1255,7 +1206,7 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         success, fail = await send_ad_to_users(
             context,
             message_text,
-            list(get_all_users()),
+            list(USERS_SET),
             is_markdown=True
         )
         
@@ -1267,7 +1218,7 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📊 **التقرير:**
 • تم الإرسال لـ: **{success}** مستخدم
 • فشل الإرسال لـ: **{fail}** مستخدم
-• إجمالي المستخدمين: **{len(get_all_users())}**
+• إجمالي المستخدمين: **{len(USERS_SET)}**
 
 📝 **نص الإعلان:**
 {message_text[:200]}{'...' if len(message_text) > 200 else ''}
@@ -1280,12 +1231,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     message_text = update.message.text.strip()
-    user = update.effective_user
-    add_user(user.id, user.first_name, user.username)
-    
-    if not user_id:
+    user_id = update.effective_user.id
+
+    if user_id in ADMIN_IDS and user_id in awaiting_ad_message:
+        logger.info(f"⏭️ تم تجاهل رسالة من الأدمن {user_id} - في حالة انتظار إعلان")
         return
-    add_user(user.id, user.first_name, user.username)
+
+    if user_id not in USERS_SET:
+        USERS_SET.add(user_id)
+        logger.info(f"👤 مستخدم جديد: {user_id} - إجمالي المستخدمين: {len(USERS_SET)}")
     
     try:
         is_subscribed = await check_subscription(context, user_id)
