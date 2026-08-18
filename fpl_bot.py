@@ -1,11 +1,11 @@
 import os
 import logging
-import json
 import calendar
 from datetime import datetime, timezone, timedelta
 import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationHandlerStop
 
 # ============================================================
 # الإعدادات الأساسية والتكوين
@@ -24,42 +24,14 @@ if not BOT_TOKEN:
 
 BASE_URL = "https://fantasy.premierleague.com/api"
 
-ADMIN_IDS = [7095210809, 2046683919, 1401110823]
+CHANNELS = [
+    {"id": "@Fantasypremierlea", "name": "القناة الأولى"},
+    {"id": "@Fantasyargoal", "name": "القناة الثانية"},
+]
 
-USERS_FILE = "users_data.json"
+ADMIN_IDS = [7095210809, 2046683919, 1401110823]  
 
-def load_users():
-    """تحميل المستخدمين من الملف"""
-    if os.path.exists(USERS_FILE):
-        try:
-            with open(USERS_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    return set(data)
-                elif isinstance(data, dict):
-                    return set(data.get('users', []))
-        except Exception as e:
-            logger.error(f"خطأ في تحميل المستخدمين: {e}")
-    return set()
-
-def save_users():
-    """حفظ المستخدمين في الملف"""
-    try:
-        data = {
-            'users': list(USERS_SET),
-            'total': len(USERS_SET),
-            'last_updated': datetime.now(timezone.utc).isoformat()
-        }
-        with open(USERS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception as e:
-        logger.error(f"خطأ في حفظ المستخدمين: {e}")
-        return False
-
-# تحميل المستخدمين عند بدء التشغيل
-USERS_SET = load_users()
-logger.info(f"✅ تم تحميل {len(USERS_SET)} مستخدم من الملف")
+USERS_SET = set()
 
 awaiting_ad_message = {}
 
@@ -82,6 +54,19 @@ def sanitize_markdown(text):
     for char in dangerous_chars:
         text = text.replace(char, f'\\{char}')
     return text
+
+async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    for channel in CHANNELS:
+        channel_id = channel["id"]
+        try:
+            chat_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+            if chat_member.status not in ["member", "administrator", "creator"]:
+                logger.info(f"المستخدم {user_id} غير مشترك في القناة {channel_id}")
+                return False
+        except Exception as e:
+            logger.error(f"خطأ في التحقق من اشتراك المستخدم {user_id} في القناة {channel_id}: {e}")
+            return False
+    return True
 
 def safe_api_request(url, debug_name="API Request"):
     for attempt in range(3):
@@ -156,109 +141,6 @@ def get_league_change_display(current_rank, previous_rank):
 # ============================================================
 # دوال جلب البيانات من API
 # ============================================================
-
-def get_team_difficulty_fixtures(team_id, fixtures_data, start_gw=None, match_count=2):
-    """الحصول على مباريات فريق معين مع صعوبتها"""
-    team_fixtures = []
-    for f in fixtures_data:
-        if f.get("team_h") == team_id or f.get("team_a") == team_id:
-            opponent_id = f.get("team_a") if f.get("team_h") == team_id else f.get("team_h")
-            is_home = f.get("team_h") == team_id
-            difficulty = f.get("difficulty", 3)
-            gw = f.get("event")
-            
-            if start_gw and gw < start_gw:
-                continue
-            
-            team_fixtures.append({
-                "gameweek": gw,
-                "opponent_id": opponent_id,
-                "is_home": is_home,
-                "difficulty": difficulty,
-                "fixture_id": f.get("id")
-            })
-    
-    team_fixtures = sorted(team_fixtures, key=lambda x: x["gameweek"])
-    return team_fixtures[:match_count]
-    
-def format_fdr_display(page=0, per_page=2):
-    """عرض صعوبة المباريات مع تنقل بين الصفحات"""
-    bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_bootstrap_fdr")
-    fixtures = get_fixtures()
-    teams_dict = get_teams_dict()
-    
-    if not bootstrap_data or not fixtures:
-        return "❌ حدث خطأ في جلب البيانات", 0, 0
-    
-    current_gw = get_current_gameweek()
-    all_gws = sorted(set([f.get("event") for f in fixtures if f.get("event") and f.get("event") >= current_gw]))
-    
-    if not all_gws:
-        return "❌ لا توجد مباريات قادمة", 0, 0
-    
-    total_pages = (len(all_gws) + per_page - 1) // per_page
-    start_idx = page * per_page
-    end_idx = min(start_idx + per_page, len(all_gws))
-    display_gws = all_gws[start_idx:end_idx]
-    
-    if not display_gws:
-        return "❌ لا توجد مباريات في هذه الصفحة", 0, 0
-    
-    upcoming_fixtures = [f for f in fixtures if f.get("event") in display_gws]
-    sorted_teams = sorted(teams_dict.items(), key=lambda x: x[1]["name"])
-    
-    response = "📊 **جدول صعوبة المباريات (FDR)**\n"
-    response += f"📅 الجولات {display_gws[0]} - {display_gws[-1]}\n"
-    response += f"📖 الصفحة {page + 1} من {total_pages}\n"
-    response += "━━━━━━━━━━━━━━━━━━━━━\n\n"
-    response += "🔴 صعب | 🟡 متوسط | 🟢 سهل\n"
-    response += "━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    for team_id, team_info in sorted_teams:
-        team_name = team_info["short_name"]
-        team_emoji = team_info["emoji_only"]
-        team_fixtures = get_team_difficulty_fixtures(team_id, upcoming_fixtures, start_gw=display_gws[0], match_count=per_page)
-        
-        if not team_fixtures:
-            continue
-        
-        line = f"{team_emoji} **{team_name}** | "
-        for match in team_fixtures:
-            gw = match["gameweek"]
-            diff = match["difficulty"]
-            home_away = "🏠" if match["is_home"] else "✈️"
-            
-            if diff <= 2:
-                color = "🟢"
-            elif diff == 3:
-                color = "🟡"
-            else:
-                color = "🔴"
-            
-            line += f"{color}{home_away}{gw} "
-        
-        response += line + "\n"
-    
-    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
-    response += f"📊 عدد الفرق: {len(sorted_teams)}\n"
-    response += f"📅 إجمالي الجولات القادمة: {len(all_gws)}"
-    
-    return response, total_pages, page
-
-def get_fdr_keyboard(page=0, total_pages=1):
-    """أزرار التنقل في FDR"""
-    keyboard = []
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"fdr_{page-1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"fdr_{page+1}"))
-    
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="fdr_back")])
-    return InlineKeyboardMarkup(keyboard)
 
 def get_manager_info(manager_id):
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/", "get_manager_info")
@@ -554,33 +436,11 @@ def get_gameweek_stats(gameweek):
     return {"average_score": 0, "highest_score": 0}
 
 # ============================================================
-# دوال عرض المعلومات
+# دوال عرض المعلومات - المعدلة حسب كود fpl_bot
 # ============================================================
 
-async def match_diff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض صعوبة المباريات القادمة (FDR)"""
-    msg = await update.message.reply_text("🔄 جاري تحميل جدول صعوبة المباريات...")
-    
-    try:
-        text, total_pages, current_page = format_fdr_display(page=0, per_page=2)
-        
-        if text:
-            keyboard = get_fdr_keyboard(page=current_page, total_pages=total_pages)
-            await msg.delete()
-            await update.message.reply_text(
-                text=text,
-                parse_mode='Markdown',
-                reply_markup=keyboard
-            )
-        else:
-            await msg.edit_text("❌ حدث خطأ في تحميل البيانات")
-            
-    except Exception as e:
-        logger.error(f"خطأ في عرض FDR: {e}")
-        await msg.edit_text(f"❌ حدث خطأ: {str(e)[:100]}")
-
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
-    """عرض مبسط لمعلومات المدرب"""
+    """عرض مبسط لمعلومات المدرب - مطابق لكود fpl_bot"""
     name = sanitize_markdown(safe_str(info.get("name")))
     
     total_points = safe_int(info.get("summary_overall_points"))
@@ -912,6 +772,10 @@ def get_fixtures_keyboard(manager_id, gameweek):
     keyboard.append([InlineKeyboardButton("🔙 العودة للرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
     return InlineKeyboardMarkup(keyboard)
 
+# ============================================================
+# دوال مواعيد الجولة - مطابقة لكود fpl_bot
+# ============================================================
+
 def format_deadline_display(manager_id, info, gameweek):
     name = sanitize_markdown(safe_str(info.get("name")))
 
@@ -962,173 +826,12 @@ def format_deadline_display(manager_id, info, gameweek):
     )
     return response
 
-def format_players_display(manager_id, info, gameweek, sort_by="points", page=0):
-    name = sanitize_markdown(safe_str(info.get("name")))
-    players_per_page = 20
-
-    all_players = get_all_players_data(sort_by=sort_by)
-    total_players = len(all_players)
-    total_pages = (total_players + players_per_page - 1) // players_per_page
-
-    start_idx = page * players_per_page
-    end_idx = min(start_idx + players_per_page, total_players)
-    page_players = all_players[start_idx:end_idx]
-
-    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
-    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
-    update_date = now_mecca.strftime("%d/%m/%Y")
-
-    sort_titles = {
-        "points": "🏆 الأكثر نقاطاً",
-        "price": "💰 الأعلى سعراً",
-        "selected": "📊 الأكثر ملكية",
-        "form": "🔥 الأفضل فورماً",
-        "ppm": "🎯 الأعلى معدل نقاط (PPM)"
-    }
-    sort_title = sort_titles.get(sort_by, "🏆 الأكثر نقاطاً")
-
-    response = (
-        f"👥 **قائمة لاعبي الدوري الإنجليزي**\n"
-        f"👤 {name}\n"
-        f"📌 **نمط الفرز:** {sort_title}\n"
-        f"📊 **الجولة {gameweek}**\n"
-        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"📖 الصفحة {page + 1} من {total_pages}\n"
-        f"👥 إجمالي اللاعبين: {total_players}\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-    )
-
-    if not page_players:
-        response += "🚫 لا يوجد لاعبين للعرض\n"
-        return response
-
-    for idx, player in enumerate(page_players, start=start_idx + 1):
-        player_name = sanitize_markdown(player['name'])
-        pos_id = player.get("position", 0)
-        pos_name = POSITION_NAMES.get(pos_id, "❓ غير معروف")
-
-        price = player.get("price", 0.0)
-        points = player.get("total_points", 0)
-        team_id = player.get("team", 0)
-        team_short = TEAM_NAMES.get(team_id, "???")
-        selected = player.get("selected_by", 0.0)
-        form = player.get("form", 0.0)
-        ppm = player.get("ppm", 0.0)
-
-        price_str = f"£{price:.1f}M" if price > 0 else "غير متاح"
-        selected_str = f"{selected:.1f}%" if selected > 0 else "0%"
-        form_str = f"{form:.1f}" if form > 0 else "-"
-        ppm_str = f"{ppm:.1f}" if ppm > 0 else "0.0"
-
-        response += (
-            f"{idx:3d}. **{player_name}**\n"
-            f"   {pos_name} | {team_short} | النقاط: **{points}** | السعر: **{price_str}** | معدل النقاط: **{ppm_str}** | الفورم: {form_str} | الملكية: {selected_str}\n\n"
-        )
-
-    response += "━━━━━━━━━━━━━━━━━━━━━\n"
-    response += f"📊 إجمالي المعروض بالصفحة: {len(page_players)} لاعبين\n"
-    response += "🔄 اختَر نوع الفرز أو استخدم أزرار التنقل بالأسفل:"
-
-    return response
-
-def format_price_changes_display(manager_id, info, gameweek):
-    name = sanitize_markdown(safe_str(info.get("name")))
-    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_changes")
-
-    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
-    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
-    update_date = now_mecca.strftime("%d/%m/%Y")
-
-    if not data or "elements" not in data:
-        return "❌ حدث خطأ أثناء جلب بيانات الأسعار."
-
-    elements = data["elements"]
-
-    players_list = []
-    for p in elements:
-        transfers_in = safe_int(p.get("transfers_in_event", 0))
-        transfers_out = safe_int(p.get("transfers_out_event", 0))
-        net_transfers = transfers_in - transfers_out
-
-        p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
-        price = safe_int(p.get("now_cost", 0)) / 10.0
-        ownership = safe_str(p.get("selected_by_percent", "0.0"))
-        cost_change = safe_int(p.get("cost_change_event", 0))
-
-        players_list.append({
-            "name": p_name,
-            "price": price,
-            "ownership": ownership,
-            "net_transfers": net_transfers,
-            "cost_change": cost_change,
-            "transfers_in": transfers_in,
-            "transfers_out": transfers_out
-        })
-
-    predicted_rise = sorted(players_list, key=lambda x: x["net_transfers"], reverse=True)[:5]
-    predicted_fall = sorted(players_list, key=lambda x: x["net_transfers"])[:5]
-
-    actual_risen = [p for p in elements if p.get("cost_change_event", 0) > 0]
-    actual_risen = sorted(actual_risen, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
-
-    actual_fallen = [p for p in elements if p.get("cost_change_event", 0) < 0]
-    actual_fallen = sorted(actual_fallen, key=lambda x: x.get("cost_change_event", 0))[:5]
-
-    response = (
-        f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
-        f"👤 {name}\n"
-        f"📊 **الجولة {gameweek}**\n"
-        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-    )
-
-    response += "🚀 **أكثر 5 لاعبين متوقع ارتفاعهم:**\n"
-    for idx, p in enumerate(predicted_rise, 1):
-        prediction_pct = min(100.0, max(0.0, (p["net_transfers"] / 50000.0) * 100))
-        response += (
-            f"{idx}. **{p['name']}**\n"
-            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 نسبة التوقع: {prediction_pct:.1f}%\n"
-        )
-    response += "\n"
-
-    response += "🔻 **أكثر 5 لاعبين متوقع انخفاضهم:**\n"
-    for idx, p in enumerate(predicted_fall, 1):
-        prediction_pct = min(100.0, max(0.0, (abs(p["net_transfers"]) / 50000.0) * 100))
-        response += (
-            f"{idx}. **{p['name']}**\n"
-            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 نسبة التوقع: {prediction_pct:.1f}%\n"
-        )
-    response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
-
-    response += "🟢 **آخر 5 لاعبين ارتفع سعرهم:**\n"
-    if actual_risen:
-        for idx, p in enumerate(actual_risen, 1):
-            p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
-            price = safe_int(p.get("now_cost", 0)) / 10.0
-            ownership = safe_str(p.get("selected_by_percent", "0.0"))
-            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
-    else:
-        response += "لا يوجد ارتفاعات في الأسعار مؤخراً\n"
-    response += "\n"
-
-    response += "🔴 **آخر 5 لاعبين انخفض سعرهم:**\n"
-    if actual_fallen:
-        for idx, p in enumerate(actual_fallen, 1):
-            p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
-            price = safe_int(p.get("now_cost", 0)) / 10.0
-            ownership = safe_str(p.get("selected_by_percent", "0.0"))
-            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
-    else:
-        response += "لا يوجد انخفاضات في الأسعار مؤخراً\n"
-
-    return response
-
 # ============================================================
-# دوال الأزرار ومعالجات البوت
+# دوال الأزرار ومعالجات البوت - المعدلة
 # ============================================================
 
 def get_buttons(manager_id, gameweek, current_view):
+    """أزرار القائمة الرئيسية - مطابقة لكود fpl_bot"""
     next_gw = get_next_gameweek(gameweek)
     prev_gw = get_previous_gameweek(gameweek)
 
@@ -1139,59 +842,27 @@ def get_buttons(manager_id, gameweek, current_view):
         [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
          InlineKeyboardButton("📈 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
-        [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data="fdr_0")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
+def get_subscription_button():
     keyboard = []
-
-    points_btn_text = "✅ النقاط 🏆" if sort_by == "points" else "النقاط 🏆"
-    price_btn_text = "✅ السعر 💰" if sort_by == "price" else "السعر 💰"
-    selected_btn_text = "✅ الملكية 📊" if sort_by == "selected" else "الملكية 📊"
-    form_btn_text = "✅ الفورم 🔥" if sort_by == "form" else "الفورم 🔥"
-    ppm_btn_text = "✅ معدل PPM 🎯" if sort_by == "ppm" else "معدل PPM 🎯"
-
+    for channel in CHANNELS:
+        keyboard.append([
+            InlineKeyboardButton(f"📢 اشترك في {channel['name']}", url=f"https://t.me/{channel['id'].replace('@', '')}")
+        ])
     keyboard.append([
-        InlineKeyboardButton(points_btn_text, callback_data=f"players_{manager_id}_{gameweek}_points_0"),
-        InlineKeyboardButton(price_btn_text, callback_data=f"players_{manager_id}_{gameweek}_price_0")
+        InlineKeyboardButton("✅ تم الاشتراك - تحقق مرة أخرى", callback_data="check_0")
     ])
-
-    keyboard.append([
-        InlineKeyboardButton(selected_btn_text, callback_data=f"players_{manager_id}_{gameweek}_selected_0"),
-        InlineKeyboardButton(form_btn_text, callback_data=f"players_{manager_id}_{gameweek}_form_0")
-    ])
-
-    keyboard.append([
-        InlineKeyboardButton(ppm_btn_text, callback_data=f"players_{manager_id}_{gameweek}_ppm_0")
-    ])
-
-    keyboard.append([
-        InlineKeyboardButton("🏢 اختيار فريق", callback_data=f"teamslist_{manager_id}_{gameweek}"),
-        InlineKeyboardButton("🎯 مركز اللاعب", callback_data=f"poslist_{manager_id}_{gameweek}")
-    ])
-
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"players_{manager_id}_{gameweek}_{sort_by}_{page-1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"players_{manager_id}_{gameweek}_{sort_by}_{page+1}"))
-
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-
-    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
-
     return InlineKeyboardMarkup(keyboard)
 
 # ============================================================
-# دوال إدارة الأزرار
+# دوال إدارة الأزرار - كود no butt مع تعديل العودة للـ detail
 # ============================================================
 
 async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """الأمر /admin - لوحة تحكم المدير"""
     user_id = update.effective_user.id
     
     if user_id not in ADMIN_IDS:
@@ -1227,7 +898,6 @@ async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة أزرار لوحة التحكم"""
     query = update.callback_query
     await query.answer()
     
@@ -1305,7 +975,8 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         
         await query.edit_message_text(
             f"✍️ **أرسل نص الإعلان الآن**\n\n"
-            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم\n",
+            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم\n"
+            f"🔹 لإلغاء الإرسال، أرسل /cancel",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("❌ إلغاء", callback_data="ad_cancel")]
@@ -1368,7 +1039,6 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 async def send_ad_to_users(context: ContextTypes.DEFAULT_TYPE, ad_text: str, user_ids: list, is_markdown: bool = True):
-    """إرسال الإعلان لجميع المستخدمين"""
     success_count = 0
     fail_count = 0
     
@@ -1392,10 +1062,7 @@ async def send_ad_to_users(context: ContextTypes.DEFAULT_TYPE, ad_text: str, use
     
     return success_count, fail_count
 
-from telegram.ext import ApplicationHandlerStop
-
 async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة رسائل الإعلان المرسلة من المدير"""
     user_id = update.effective_user.id
     message_text = update.message.text
     
@@ -1459,8 +1126,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if user_id not in USERS_SET:
         USERS_SET.add(user_id)
-        save_users()
         logger.info(f"👤 مستخدم جديد: {user_id} - إجمالي المستخدمين: {len(USERS_SET)}")
+    
+    try:
+        is_subscribed = await check_subscription(context, user_id)
+    except Exception as e:
+        logger.error(f"خطأ أثناء فحص الاشتراك للمستخدم {user_id}: {e}")
+        is_subscribed = False
+
+    if not is_subscribed:
+        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+        await update.message.reply_text(
+            f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+            f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قنواتنا:\n"
+            f"{channels_list}\n\n"
+            f"✅ **خطوات الاشتراك:**\n"
+            f"1️⃣ اضغط على أزرار 'اشترك في القناة' أدناه لكل قناة\n"
+            f"2️⃣ انضم إلى جميع القنوات\n"
+            f"3️⃣ عد إلى البوت واضغط 'تم الاشتراك - تحقق مرة أخرى'\n\n"
+            f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في جميع القنوات.",
+            parse_mode='Markdown',
+            reply_markup=get_subscription_button()
+        )
+        return
 
     if message_text.startswith(('/start', '/help')):
         welcome_text = (
@@ -1475,7 +1163,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✓ قيمة الفريق والرصيد البنكي 💰\n"
             "✓ ترتيبك في الدوريات المختلفة\n"
             "✓ تاريخ المواسم السابقة\n"
-            "✓ نتائج المباريات وتفاصيلها ⚽️\n"
+            "✓ نتائج المباريات وتفاصيلها ⚽\n"
             "✓ مواعيد الديدلاين والانتقالات ⏰\n\n"
             "🔑 **كيف تحصل على معرف المدرب؟**\n"
             "افتح موقع FPL، الرقم في رابط حسابك:\n"
@@ -1526,6 +1214,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"فشل حذف الرسائل المؤقتة: {e}")
 
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
+
+# ============================================================
+# دوال عرض اللاعبين - كما في no butt
+# ============================================================
 
 def get_teams_keyboard(manager_id, gameweek):
     teams_dict = get_teams_dict()
@@ -1713,6 +1405,213 @@ def format_position_players_display(manager_id, gameweek, pos_id, sort_by="point
     response += "━━━━━━━━━━━━━━━━━━━━━\n"
     return response
 
+def format_players_display(manager_id, info, gameweek, sort_by="points", page=0):
+    name = sanitize_markdown(safe_str(info.get("name")))
+    players_per_page = 20
+
+    all_players = get_all_players_data(sort_by=sort_by)
+    total_players = len(all_players)
+    total_pages = (total_players + players_per_page - 1) // players_per_page
+
+    start_idx = page * players_per_page
+    end_idx = min(start_idx + players_per_page, total_players)
+    page_players = all_players[start_idx:end_idx]
+
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date = now_mecca.strftime("%d/%m/%Y")
+
+    sort_titles = {
+        "points": "🏆 الأكثر نقاطاً",
+        "price": "💰 الأعلى سعراً",
+        "selected": "📊 الأكثر ملكية",
+        "form": "🔥 الأفضل فورماً",
+        "ppm": "🎯 الأعلى معدل نقاط (PPM)"
+    }
+    sort_title = sort_titles.get(sort_by, "🏆 الأكثر نقاطاً")
+
+    response = (
+        f"👥 **قائمة لاعبي الدوري الإنجليزي**\n"
+        f"👤 {name}\n"
+        f"📌 **نمط الفرز:** {sort_title}\n"
+        f"📊 **الجولة {gameweek}**\n"
+        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📖 الصفحة {page + 1} من {total_pages}\n"
+        f"👥 إجمالي اللاعبين: {total_players}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    if not page_players:
+        response += "🚫 لا يوجد لاعبين للعرض\n"
+        return response
+
+    for idx, player in enumerate(page_players, start=start_idx + 1):
+        player_name = sanitize_markdown(player['name'])
+        pos_id = player.get("position", 0)
+        pos_name = POSITION_NAMES.get(pos_id, "❓ غير معروف")
+
+        price = player.get("price", 0.0)
+        points = player.get("total_points", 0)
+        team_id = player.get("team", 0)
+        team_short = TEAM_NAMES.get(team_id, "???")
+        selected = player.get("selected_by", 0.0)
+        form = player.get("form", 0.0)
+        ppm = player.get("ppm", 0.0)
+
+        price_str = f"£{price:.1f}M" if price > 0 else "غير متاح"
+        selected_str = f"{selected:.1f}%" if selected > 0 else "0%"
+        form_str = f"{form:.1f}" if form > 0 else "-"
+        ppm_str = f"{ppm:.1f}" if ppm > 0 else "0.0"
+
+        response += (
+            f"{idx:3d}. **{player_name}**\n"
+            f"   {pos_name} | {team_short} | النقاط: **{points}** | السعر: **{price_str}** | معدل النقاط: **{ppm_str}** | الفورم: {form_str} | الملكية: {selected_str}\n\n"
+        )
+
+    response += "━━━━━━━━━━━━━━━━━━━━━\n"
+    response += f"📊 إجمالي المعروض بالصفحة: {len(page_players)} لاعبين\n"
+    response += "🔄 اختَر نوع الفرز أو استخدم أزرار التنقل بالأسفل:"
+
+    return response
+
+def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
+    keyboard = []
+
+    points_btn_text = "✅ النقاط 🏆" if sort_by == "points" else "النقاط 🏆"
+    price_btn_text = "✅ السعر 💰" if sort_by == "price" else "السعر 💰"
+    selected_btn_text = "✅ الملكية 📊" if sort_by == "selected" else "الملكية 📊"
+    form_btn_text = "✅ الفورم 🔥" if sort_by == "form" else "الفورم 🔥"
+    ppm_btn_text = "✅ معدل PPM 🎯" if sort_by == "ppm" else "معدل PPM 🎯"
+
+    keyboard.append([
+        InlineKeyboardButton(points_btn_text, callback_data=f"players_{manager_id}_{gameweek}_points_0"),
+        InlineKeyboardButton(price_btn_text, callback_data=f"players_{manager_id}_{gameweek}_price_0")
+    ])
+
+    keyboard.append([
+        InlineKeyboardButton(selected_btn_text, callback_data=f"players_{manager_id}_{gameweek}_selected_0"),
+        InlineKeyboardButton(form_btn_text, callback_data=f"players_{manager_id}_{gameweek}_form_0")
+    ])
+
+    keyboard.append([
+        InlineKeyboardButton(ppm_btn_text, callback_data=f"players_{manager_id}_{gameweek}_ppm_0")
+    ])
+
+    keyboard.append([
+        InlineKeyboardButton("🏢 اختيار فريق", callback_data=f"teamslist_{manager_id}_{gameweek}"),
+        InlineKeyboardButton("🎯 مركز اللاعب", callback_data=f"poslist_{manager_id}_{gameweek}")
+    ])
+
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"players_{manager_id}_{gameweek}_{sort_by}_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"players_{manager_id}_{gameweek}_{sort_by}_{page+1}"))
+
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
+
+    return InlineKeyboardMarkup(keyboard)
+
+def format_price_changes_display(manager_id, info, gameweek):
+    name = sanitize_markdown(safe_str(info.get("name")))
+    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_changes")
+
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date = now_mecca.strftime("%d/%m/%Y")
+
+    if not data or "elements" not in data:
+        return "❌ حدث خطأ أثناء جلب بيانات الأسعار."
+
+    elements = data["elements"]
+
+    players_list = []
+    for p in elements:
+        transfers_in = safe_int(p.get("transfers_in_event", 0))
+        transfers_out = safe_int(p.get("transfers_out_event", 0))
+        net_transfers = transfers_in - transfers_out
+
+        p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+        price = safe_int(p.get("now_cost", 0)) / 10.0
+        ownership = safe_str(p.get("selected_by_percent", "0.0"))
+        cost_change = safe_int(p.get("cost_change_event", 0))
+
+        players_list.append({
+            "name": p_name,
+            "price": price,
+            "ownership": ownership,
+            "net_transfers": net_transfers,
+            "cost_change": cost_change,
+            "transfers_in": transfers_in,
+            "transfers_out": transfers_out
+        })
+
+    predicted_rise = sorted(players_list, key=lambda x: x["net_transfers"], reverse=True)[:5]
+    predicted_fall = sorted(players_list, key=lambda x: x["net_transfers"])[:5]
+
+    actual_risen = [p for p in elements if p.get("cost_change_event", 0) > 0]
+    actual_risen = sorted(actual_risen, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
+
+    actual_fallen = [p for p in elements if p.get("cost_change_event", 0) < 0]
+    actual_fallen = sorted(actual_fallen, key=lambda x: x.get("cost_change_event", 0))[:5]
+
+    response = (
+        f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
+        f"👤 {name}\n"
+        f"📊 **الجولة {gameweek}**\n"
+        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    response += "🚀 **أكثر 5 لاعبين متوقع ارتفاعهم:**\n"
+    for idx, p in enumerate(predicted_rise, 1):
+        prediction_pct = min(100.0, max(0.0, (p["net_transfers"] / 50000.0) * 100))
+        response += (
+            f"{idx}. **{p['name']}**\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 نسبة التوقع: {prediction_pct:.1f}%\n"
+        )
+    response += "\n"
+
+    response += "🔻 **أكثر 5 لاعبين متوقع انخفاضهم:**\n"
+    for idx, p in enumerate(predicted_fall, 1):
+        prediction_pct = min(100.0, max(0.0, (abs(p["net_transfers"]) / 50000.0) * 100))
+        response += (
+            f"{idx}. **{p['name']}**\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 نسبة التوقع: {prediction_pct:.1f}%\n"
+        )
+    response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    response += "🟢 **آخر 5 لاعبين ارتفع سعرهم:**\n"
+    if actual_risen:
+        for idx, p in enumerate(actual_risen, 1):
+            p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+            price = safe_int(p.get("now_cost", 0)) / 10.0
+            ownership = safe_str(p.get("selected_by_percent", "0.0"))
+            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
+    else:
+        response += "لا يوجد ارتفاعات في الأسعار مؤخراً\n"
+    response += "\n"
+
+    response += "🔴 **آخر 5 لاعبين انخفض سعرهم:**\n"
+    if actual_fallen:
+        for idx, p in enumerate(actual_fallen, 1):
+            p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+            price = safe_int(p.get("now_cost", 0)) / 10.0
+            ownership = safe_str(p.get("selected_by_percent", "0.0"))
+            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
+    else:
+        response += "لا يوجد انخفاضات في الأسعار مؤخراً\n"
+
+    return response
+
+# ============================================================
+# معالج الأزرار (Callback) المعدل
+# ============================================================
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
@@ -1736,57 +1635,59 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_admin_callback(update, context)
         return
 
-    if parts[0] == "fdr":
-        if len(parts) >= 2:
-            action = parts[1]
-            
-            if action == "back":
-                manager_id = context.user_data.get('current_manager_id')
-                if not manager_id:
-                    await query.edit_message_text("❌ يرجى إرسال معرف المدرب")
-                    return
-                
-                gameweek = get_current_gameweek()
-                info = get_manager_info(manager_id)
-                if not info:
-                    await query.edit_message_text("❌ لم أتمكن من العثور على المدرب")
-                    return
-                
-                picks_data = get_manager_picks(manager_id, gameweek)
-                history = get_manager_history(manager_id)
-                text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
-                reply_markup = get_buttons(manager_id, gameweek, "detail")
-                
-                await query.edit_message_text(
-                    text=text,
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
-                )
-                return
-            else:
-                try:
-                    page = int(action)
-                    
-                    await query.edit_message_text("🔄 جاري تحميل جدول صعوبة المباريات...")
-                    
-                    text, total_pages, current_page = format_fdr_display(page=page, per_page=2)
-                    
-                    if text:
-                        keyboard = get_fdr_keyboard(page=current_page, total_pages=total_pages)
-                        await query.edit_message_text(
-                            text=text,
-                            parse_mode='Markdown',
-                            reply_markup=keyboard
-                        )
-                    else:
-                        await query.edit_message_text("❌ حدث خطأ في تحميل البيانات")
-                        
-                except ValueError:
-                    await query.edit_message_text("❌ حدث خطأ غير متوقع")
-                except Exception as e:
-                    logger.error(f"خطأ في عرض FDR: {e}")
-                    await query.edit_message_text(f"❌ حدث خطأ: {str(e)[:100]}")
-            return
+    if parts[0] == "check":
+        logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
+        is_subscribed = await check_subscription(context, user_id)
+
+        if is_subscribed:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            except Exception as e:
+                logger.error(f"فشل في حذف رسالة الاشتراك: {e}")
+
+            welcome_text = (
+                "✨ **مرحباً بك في بوت مساعد الفانتاسي!** ✨\n\n"
+                "🎮 **كيف يعمل البوت؟**\n"
+                "• أرسل **رقم معرف المدرب** الخاص بك\n"
+                "• سأعرض لك إحصائيات الجولة الحالية فوراً\n\n"
+                "📊 **ماذا يمكنك معرفة؟**\n"
+                "✓ نقاط الجولة والنقاط الكلية والترتيب العالمي\n"
+                "✓ تفاصيل أداء كل لاعب في الفريق\n"
+                "✓ نقاط القائد والبدلاء\n"
+                "✓ قيمة الفريق والرصيد البنكي 💰\n"
+                "✓ ترتيبك في الدوريات المختلفة\n"
+                "✓ تاريخ المواسم السابقة\n"
+                "✓ نتائج المباريات وتفاصيلها ⚽\n"
+                "✓ مواعيد الديدلاين والانتقالات ⏰\n\n"
+                "🔑 **كيف تحصل على معرف المدرب؟**\n"
+                "افتح موقع FPL، الرقم في رابط حسابك:\n"
+                "`https://fantasy.premierleague.com/entry/1234567/`\n\n"
+                "📝 **جرب الآن:** أرسل `2794801`"
+            )
+            await context.bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode='Markdown')
+        else:
+            channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+            await context.bot.edit_message_text(
+                text=f"❌ **لم يتم العثور على اشتراكك في جميع القنوات بعد.**\n\n"
+                     f"يرجى الانضمام إلى جميع القنوات أولاً:\n{channels_list}",
+                chat_id=chat_id, message_id=message_id, parse_mode='Markdown',
+                reply_markup=get_subscription_button()
+            )
+        return
+
+    is_subscribed = await check_subscription(context, user_id)
+    if not is_subscribed:
+        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+        await context.bot.edit_message_text(
+            text=f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+                 f"{channels_list}\n\n"
+                 f"✅ بعد الاشتراك في الكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode='Markdown',
+            reply_markup=get_subscription_button()
+        )
+        return
 
     manager_id = context.user_data.get('current_manager_id')
     if not manager_id:
@@ -1945,7 +1846,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 view_type = "leagues"
             elif "مباريات الجولة" in current_text or "اختر المباراة" in current_text:
                 view_type = "fixtures"
-            elif "المواعيد" in current_text:
+            elif "مواعيد" in current_text:
                 view_type = "deadline"
             elif "تغيرات وتوقعات" in current_text:
                 view_type = "price"
@@ -2056,7 +1957,6 @@ def main():
     application.add_handler(CommandHandler("start", handle_message))
     application.add_handler(CommandHandler("help", handle_message))
     application.add_handler(CommandHandler("admin", handle_admin_command))
-    application.add_handler(CommandHandler("match_diff", match_diff_command))
     
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ad_message),
@@ -2071,15 +1971,16 @@ def main():
     application.add_handler(CallbackQueryHandler(handle_callback))
 
     print("=" * 50)
-    print("🤖 البوت يعمل الآن")
+    print("🤖 البوت يعمل الآن (نسخة معدلة - عرض واحد فقط + مواعيد الجولة)")
     print(f"📅 آخر جولة لعبت: {current_gameweek}")
     print("✅ المميزات:")
-    print("   • عرض بسيط ومفصل للمدربين")
+    print("   • عرض معلومات المدرب (بدون عرض بسيط)")
     print("   • دعم البنش بوست والتربل كابتن")
     print("   • حالة البطاقات مع تقسيم الموسم لنصفين")
     print("   • عرض المباريات بنتائج وتفاصيل")
     print("   • مواعيد الجولة (الديدلاين) ⏰")
     print("   • توقيت مكة المكرمة حصراً")
+    print("   • نظام الاشتراك الإجباري في القنوات")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
 
