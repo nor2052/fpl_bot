@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 import calendar
 from datetime import datetime, timezone, timedelta
 import requests
@@ -31,7 +32,43 @@ CHANNELS = [
 
 ADMIN_IDS = [7095210809, 2046683919, 1401110823]  
 
-USERS_SET = set()
+LEAGUE_ID = "1185162"  # ضع هنا معرف الدوري الخاص بك
+LEAGUE_NAME = "Han bot league"  # اسم الدوري للعرض
+
+USERS_FILE = "users_data.json"
+
+def load_users():
+    """تحميل المستخدمين من الملف"""
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return set(data)
+                elif isinstance(data, dict):
+                    return set(data.get('users', []))
+        except Exception as e:
+            logger.error(f"خطأ في تحميل المستخدمين: {e}")
+    return set()
+
+def save_users():
+    """حفظ المستخدمين في الملف"""
+    try:
+        data = {
+            'users': list(USERS_SET),
+            'total': len(USERS_SET),
+            'last_updated': datetime.now(timezone.utc).isoformat()
+        }
+        with open(USERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"خطأ في حفظ المستخدمين: {e}")
+        return False
+
+# تحميل المستخدمين عند بدء التشغيل
+USERS_SET = load_users()
+logger.info(f"✅ تم تحميل {len(USERS_SET)} مستخدم من الملف")
 
 awaiting_ad_message = {}
 
@@ -142,6 +179,361 @@ def get_league_change_display(current_rank, previous_rank):
 # دوال جلب البيانات من API
 # ============================================================
 
+
+def get_team_difficulty_fixtures(team_id, fixtures_data, start_gw=None, match_count=2):
+    """الحصول على مباريات فريق معين مع صعوبتها"""
+    team_fixtures = []
+    for f in fixtures_data:
+        if f.get("team_h") == team_id or f.get("team_a") == team_id:
+            opponent_id = f.get("team_a") if f.get("team_h") == team_id else f.get("team_h")
+            is_home = f.get("team_h") == team_id
+            difficulty = f.get("difficulty", 3)
+            gw = f.get("event")
+            
+            # تصفية حسب الجولة البداية
+            if start_gw and gw < start_gw:
+                continue
+            
+            team_fixtures.append({
+                "gameweek": gw,
+                "opponent_id": opponent_id,
+                "is_home": is_home,
+                "difficulty": difficulty,
+                "fixture_id": f.get("id")
+            })
+    
+    # ترتيب حسب الجولة
+    team_fixtures = sorted(team_fixtures, key=lambda x: x["gameweek"])
+    
+    # إرجاع عدد المباريات المطلوب
+    return team_fixtures[:match_count]
+    
+def format_fdr_display(page=0, per_page=2):
+    """عرض صعوبة المباريات مع تنقل بين الصفحات"""
+    # جلب البيانات
+    bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_bootstrap_fdr")
+    fixtures = get_fixtures()
+    teams_dict = get_teams_dict()
+    
+    if not bootstrap_data or not fixtures:
+        return "❌ حدث خطأ في جلب البيانات", 0, 0
+    
+    # الحصول على الجولة الحالية
+    current_gw = get_current_gameweek()
+    
+    # الحصول على جميع الجولات المتاحة للمباريات
+    all_gws = sorted(set([f.get("event") for f in fixtures if f.get("event") and f.get("event") >= current_gw]))
+    
+    if not all_gws:
+        return "❌ لا توجد مباريات قادمة", 0, 0
+    
+    # حساب عدد الصفحات (كل صفحة = مباراتين لكل فريق)
+    total_pages = (len(all_gws) + per_page - 1) // per_page
+    
+    # تحديد الجولات المطلوب عرضها في هذه الصفحة
+    start_idx = page * per_page
+    end_idx = min(start_idx + per_page, len(all_gws))
+    display_gws = all_gws[start_idx:end_idx]
+    
+    if not display_gws:
+        return "❌ لا توجد مباريات في هذه الصفحة", 0, 0
+    
+    # تصفية المباريات للجولات المحددة
+    upcoming_fixtures = [f for f in fixtures if f.get("event") in display_gws]
+    
+    # ترتيب الفرق حسب الاسم
+    sorted_teams = sorted(teams_dict.items(), key=lambda x: x[1]["name"])
+    
+    # بناء العرض
+    response = "📊 **جدول صعوبة المباريات (FDR)**\n"
+    response += f"📅 الجولات {display_gws[0]} - {display_gws[-1]}\n"
+    response += f"📖 الصفحة {page + 1} من {total_pages}\n"
+    response += "━━━━━━━━━━━━━━━━━━━━━\n\n"
+    response += "🔴 صعب | 🟡 متوسط | 🟢 سهل\n"
+    response += "━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    # عرض كل فريق مع مبارياته
+    for team_id, team_info in sorted_teams:
+        team_name = team_info["short_name"]
+        team_emoji = team_info["emoji_only"]
+        
+        # الحصول على مباريات الفريق للجولات المحددة
+        team_fixtures = get_team_difficulty_fixtures(team_id, upcoming_fixtures, start_gw=display_gws[0], match_count=per_page)
+        
+        if not team_fixtures:
+            continue
+        
+        # بناء سطر الفريق
+        line = f"{team_emoji} **{team_name}** | "
+        
+        for match in team_fixtures:
+            gw = match["gameweek"]
+            diff = match["difficulty"]
+            home_away = "🏠" if match["is_home"] else "✈️"
+            
+            # تحديد لون الصعوبة
+            if diff <= 2:
+                color = "🟢"
+            elif diff == 3:
+                color = "🟡"
+            else:
+                color = "🔴"
+            
+            line += f"{color}{home_away}{gw} "
+        
+        response += line + "\n"
+    
+    # إضافة إحصائيات سريعة
+    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
+    response += f"📊 عدد الفرق: {len(sorted_teams)}\n"
+    response += f"📅 إجمالي الجولات القادمة: {len(all_gws)}"
+    
+    return response, total_pages, page
+
+def get_fdr_keyboard(page=0, total_pages=1):
+    """أزرار التنقل في FDR"""
+    keyboard = []
+    
+    # أزرار التنقل
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"fdr_{page-1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"fdr_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # زر العودة للرئيسية
+    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="fdr_back")])
+    
+    return InlineKeyboardMarkup(keyboard)    
+
+def get_h2h_league_standings(league_id, page=1):
+    """جلب ترتيب الدوري بنظام الكأس (Head-to-Head)"""
+    url = f"{BASE_URL}/leagues-h2h/{league_id}/standings/"
+    if page > 1:
+        url += f"?page={page}"
+    
+    data = safe_api_request(url, "get_h2h_league_standings")
+    
+    if data and "standings" in data:
+        return data
+    return None
+
+def get_all_h2h_league_entries(league_id):
+    """جلب جميع المشاركين في دوري الكأس (مع الصفحات)"""
+    all_entries = []
+    page = 1
+    
+    while True:
+        data = get_h2h_league_standings(league_id, page)
+        if not data or "standings" not in data:
+            break
+        
+        results = data["standings"].get("results", [])
+        if not results:
+            break
+        
+        all_entries.extend(results)
+        
+        # التحقق من وجود صفحة تالية
+        if not data["standings"].get("has_next", False):
+            break
+        
+        page += 1
+    
+    return all_entries
+
+def get_h2h_league_matches(league_id, page=1):
+    """جلب مباريات دوري الكأس"""
+    url = f"{BASE_URL}/leagues-h2h/{league_id}/matches/"
+    if page > 1:
+        url += f"?page={page}"
+    
+    data = safe_api_request(url, "get_h2h_league_matches")
+    
+    if data and "matches" in data:
+        return data
+    return None
+
+def format_h2h_entry(entry, index, gameweek):
+    """تنسيق عرض مشارك واحد في دوري الكأس"""
+    manager_name = sanitize_markdown(entry.get("entry_name", "غير معروف"))
+    player_name = sanitize_markdown(entry.get("player_name", "غير معروف"))
+    
+    # النقاط
+    total_points = entry.get("total", 0)
+    event_points = entry.get("event_total", 0)
+    
+    # الترتيب
+    rank = entry.get("rank", 0)
+    last_rank = entry.get("last_rank", 0)
+    
+    # نقاط الكأس (Head-to-Head)
+    h2h_points = entry.get("h2h_points", 0)
+    h2h_wins = entry.get("h2h_wins", 0)
+    h2h_draws = entry.get("h2h_draws", 0)
+    h2h_losses = entry.get("h2h_losses", 0)
+    
+    # تغير الترتيب
+    rank_change = ""
+    if last_rank > 0 and rank > 0:
+        diff = last_rank - rank
+        if diff > 0:
+            rank_change = f"🚀 +{diff}"
+        elif diff < 0:
+            rank_change = f"🔻 {diff}"
+        else:
+            rank_change = "➖"
+    
+    # معرف المدرب
+    entry_id = entry.get("entry", 0)
+    
+    # تنسيق العرض
+    response = (
+        f"**{index}.** {manager_name}\n"
+        f"   👤 {player_name} | 🆔 `{entry_id}`\n"
+        f"   📊 نقاط الجولة: **{event_points}** | 🏆 نقاط الموسم: **{total_points}**\n"
+        f"   📈 الترتيب: **{rank}** {rank_change}\n"
+        f"   🏅 كأس الدوري: **{h2h_points}** نقطة (فوز {h2h_wins} - تعادل {h2h_draws} - خسارة {h2h_losses})\n"
+    )
+    
+    return response
+
+def format_h2h_league_display(league_id, page=1, per_page=10, manager_id=None):
+    """تنسيق عرض ترتيب دوري الكأس"""
+    # جلب البيانات
+    data = get_h2h_league_standings(league_id, page)
+    
+    if not data or "standings" not in data:
+        return "❌ حدث خطأ في جلب بيانات دوري الكأس", None
+    
+    standings = data["standings"]
+    entries = standings.get("results", [])
+    total_entries = standings.get("total", 0)
+    total_pages = (total_entries + per_page - 1) // per_page
+    
+    # اسم الدوري
+    league_name = standings.get("league", {}).get("name", "كأس الدوري")
+    
+    # تاريخ التحديث
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date = now_mecca.strftime("%d/%m/%Y")
+    
+    # بناء النص
+    response = (
+        f"🏆 **{league_name}** (نظام الكأس)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 الصفحة {page} من {total_pages}\n"
+        f"👥 عدد المشاركين: {total_entries}\n"
+        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+    
+    if not entries:
+        response += "🚫 لا يوجد مشاركين في هذه الصفحة\n"
+        return response, None
+    
+    # عرض المشاركين
+    start_index = (page - 1) * per_page + 1
+    for idx, entry in enumerate(entries, start=start_index):
+        response += format_h2h_entry(entry, idx, get_current_gameweek())
+        response += "\n"
+    
+    # إحصائيات سريعة
+    if entries:
+        top_score = max([e.get("event_total", 0) for e in entries])
+        top_name = max(entries, key=lambda x: x.get("event_total", 0)).get("entry_name", "")
+        top_h2h = max([e.get("h2h_points", 0) for e in entries])
+        top_h2h_name = max(entries, key=lambda x: x.get("h2h_points", 0)).get("entry_name", "")
+        
+        response += f"━━━━━━━━━━━━━━━━━━━━━\n"
+        response += f"⚡ أعلى نقاط في الجولة: **{top_score}** نقطة ({top_name})\n"
+        response += f"🏅 أعلى نقاط في الكأس: **{top_h2h}** نقطة ({top_h2h_name})\n"
+    
+    return response, total_pages
+
+def get_league_standings(league_id, page=1):
+    """جلب ترتيب الدوري مع دعم الصفحات"""
+    url = f"{BASE_URL}/leagues-classic/{league_id}/standings/"
+    if page > 1:
+        url += f"?page={page}"
+    
+    data = safe_api_request(url, "get_league_standings")
+    
+    if data and "standings" in data:
+        return data
+    return None
+
+def get_all_league_entries(league_id):
+    """جلب جميع المشاركين في الدوري (مع الصفحات)"""
+    all_entries = []
+    page = 1
+    
+    while True:
+        data = get_league_standings(league_id, page)
+        if not data or "standings" not in data:
+            break
+        
+        results = data["standings"].get("results", [])
+        if not results:
+            break
+        
+        all_entries.extend(results)
+        
+        # التحقق من وجود صفحة تالية
+        if not data["standings"].get("has_next", False):
+            break
+        
+        page += 1
+    
+    return all_entries
+
+def get_league_rank_change(entry, previous_rank=None):
+    """حساب تغير الترتيب في الدوري"""
+    current_rank = entry.get("rank", 0)
+    
+    if previous_rank and previous_rank > 0 and current_rank > 0:
+        diff = previous_rank - current_rank
+        if diff > 0:
+            return f"🚀 +{diff}"
+        elif diff < 0:
+            return f"🔻 {diff}"
+    return "➖"
+
+def format_league_entry(entry, index, gameweek, show_change=True):
+    """تنسيق عرض مشارك واحد في الدوري"""
+    manager_name = sanitize_markdown(entry.get("entry_name", "غير معروف"))
+    player_name = sanitize_markdown(entry.get("player_name", "غير معروف"))
+    
+    # النقاط
+    total_points = entry.get("total", 0)
+    event_points = entry.get("event_total", 0)
+    
+    # الترتيب
+    rank = entry.get("rank", 0)
+    last_rank = entry.get("last_rank", 0)
+    
+    # الحصول على تغير الترتيب
+    rank_change = ""
+    if show_change and last_rank > 0:
+        rank_change = get_league_rank_change(entry, last_rank)
+    
+    # معرف المدرب
+    entry_id = entry.get("entry", 0)
+    
+    # تنسيق العرض
+    response = (
+        f"**{index}.** {manager_name}\n"
+        f"   👤 {player_name} | 🆔 `{entry_id}`\n"
+        f"   📊 نقاط الجولة: **{event_points}** | 🏆 نقاط الموسم: **{total_points}**\n"
+        f"   📈 الترتيب: **{rank}** {rank_change}\n"
+    )
+    
+    return response
+    
 def get_manager_info(manager_id):
     return safe_api_request(f"{BASE_URL}/entry/{manager_id}/", "get_manager_info")
 
@@ -439,6 +831,41 @@ def get_gameweek_stats(gameweek):
 # دوال عرض المعلومات
 # ============================================================
 
+
+async def match_diff_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض صعوبة المباريات القادمة (FDR)"""
+    user_id = update.effective_user.id
+    
+    # التحقق من الاشتراك
+    is_subscribed = await check_subscription(context, user_id)
+    if not is_subscribed:
+        await update.message.reply_text(
+            "🔒 **يرجى الاشتراك في القنوات أولاً!**\n"
+            "استخدم /start للتحقق من الاشتراك.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    msg = await update.message.reply_text("🔄 جاري تحميل جدول صعوبة المباريات...")
+    
+    try:
+        text, total_pages, current_page = format_fdr_display(page=0, per_page=2)
+        
+        if text:
+            keyboard = get_fdr_keyboard(page=current_page, total_pages=total_pages)
+            await msg.delete()
+            await update.message.reply_text(
+                text=text,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        else:
+            await msg.edit_text("❌ حدث خطأ في تحميل البيانات")
+            
+    except Exception as e:
+        logger.error(f"خطأ في عرض FDR: {e}")
+        await msg.edit_text(f"❌ حدث خطأ: {str(e)[:100]}")
+
 def format_simple_display(manager_id, info, gameweek, picks_data, history):
     name = sanitize_markdown(safe_str(info.get("name")))
     total_points = safe_int(info.get("summary_overall_points"))
@@ -513,191 +940,109 @@ def format_simple_display(manager_id, info, gameweek, picks_data, history):
     return response
 
 def format_detailed_display(manager_id, info, gameweek, picks_data, history):
+    """عرض مبسط لمعلومات المدرب"""
     name = sanitize_markdown(safe_str(info.get("name")))
-    joined = safe_str(info.get("joined_time", ""))[:10]
-    if joined == "" or joined == "None":
-        joined = "غير معروف"
-
+    
+    # النقاط والترتيب
     total_points = safe_int(info.get("summary_overall_points"))
-
+    
+    # ترتيب الجولة الحالية
     target_gw_rank = 0
     if history and "current" in history:
         for gw_entry in history["current"]:
             if gw_entry.get("event") == gameweek:
                 target_gw_rank = safe_int(gw_entry.get("overall_rank"))
                 break
-
+    
     rank = target_gw_rank if target_gw_rank > 0 else safe_int(info.get("summary_overall_rank"))
     rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
-
-    team_value = bank_value = total_value_display = 0.0
-    if picks_data and "entry_history" in picks_data:
-        history_data = picks_data["entry_history"]
-        raw_total_value = safe_int(history_data.get("value", 0))
-        raw_bank = safe_int(history_data.get("bank", 0))
-        bank_value = raw_bank / 10
-        team_value = (raw_total_value - raw_bank) / 10
-        total_value_display = raw_total_value / 10
-
-    full_live_data = get_full_live_data(gameweek)
-    active_chip = picks_data.get("active_chip") if picks_data else None
-
-    rank_change_display = get_rank_change_display(manager_id, gameweek, history)
-
+    
+    # نقاط الجولة والترتيب
+    event_points = 0
+    event_rank = 0
+    transfers_made = 0
+    transfers_cost = 0
+    
+    if picks_data and "picks" in picks_data:
+        live_points_map = get_live_points(gameweek)
+        active_chip = picks_data.get("active_chip")
+        
+        # حساب نقاط الجولة
+        players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
+        for pick in players_to_count:
+            player_id = pick.get("element")
+            player_points = live_points_map.get(player_id, 0)
+            multiplier = 3 if (pick.get("is_captain") and active_chip == "3xc") else (2 if pick.get("is_captain") else 1)
+            event_points += player_points * multiplier
+        
+        if "entry_history" in picks_data:
+            history_data = picks_data["entry_history"]
+            transfers_made = safe_int(history_data.get("event_transfers", 0))
+            transfers_cost = safe_int(history_data.get("event_transfers_cost", 0))
+            event_rank = safe_int(history_data.get("rank", 0))
+    
+    event_points_after_hits = event_points - transfers_cost
+    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
+    
+    # متوسط نقاط الجولة
     gw_stats = get_gameweek_stats(gameweek)
     avg_points = gw_stats["average_score"]
-
-    players_full_data = {}
-    bootstrap_data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_players_full_data")
-    if bootstrap_data and "elements" in bootstrap_data:
-        for player in bootstrap_data["elements"]:
-            players_full_data[player["id"]] = {"element_type": player.get("element_type")}
-
-    position_names = {1: "🥅 الحراسة", 2: "🪖 الدفاع", 3: "⚡ الوسط", 4: "🎯 الهجوم"}
-
-    def get_player_row(p_id, multiplier):
-        p_entry = full_live_data.get(p_id, {})
-        stats = p_entry.get('stats', {})
-        e_type = players_full_data.get(p_id, {}).get("element_type", 0)
-
-        def_earned, _, _ = get_defensive_contribution_status(p_id, e_type, full_live_data)
-        total_api = stats.get('total_points', 0)
-        final_display_pts = total_api * multiplier
-
-        events = []
-        if stats.get('goals_scored', 0) > 0:
-            events.append("⚽" * stats['goals_scored'])
-        if stats.get('assists', 0) > 0:
-            events.append("🅰️" * stats['assists'])
-        if stats.get('clean_sheets', 0) > 0 and e_type in [1, 2, 3]:
-            events.append("🛡️")
-        if stats.get('saves', 0) >= 3:
-            events.append(f"🧤({stats.get('saves', 0)})")
-        if stats.get('yellow_cards', 0) > 0:
-            events.append("🟨")
-        if stats.get('red_cards', 0) > 0:
-            events.append("🟥")
-        if stats.get('own_goals', 0) > 0:
-            events.append("🚫(OG)")
-        if stats.get('penalties_missed', 0) > 0:
-            events.append("❌(PK)")
-        if stats.get('penalties_saved', 0) > 0:
-            events.append("🧤(PK)")
-
-        def_icon = " 🧱" if def_earned else ""
-        return final_display_pts, total_api * multiplier, " ".join(events), def_icon
-
-    event_points_before_hits = 0
-    total_transfers = safe_int(info.get("total_transfers"))
-    event_rank = 0
-    transfers_cost = 0
-    players_output = ""
-
-    if picks_data and "picks" in picks_data:
-        for pos_id in [1, 2, 3, 4]:
-            pos_players = [p for p in picks_data["picks"][:11]
-                          if players_full_data.get(p['element'], {}).get('element_type') == pos_id]
-            if pos_players:
-                players_output += f"{position_names[pos_id]}:\n"
-                for pick in pos_players:
-                    p_id = pick['element']
-                    mult = 3 if (pick.get('is_captain') and active_chip == '3xc') else (2 if pick.get('is_captain') else 1)
-                    p_name = sanitize_markdown(players_dict.get(p_id, "Unknown"))
-                    p_pts_val, p_pts_raw, p_icons, def_icon = get_player_row(p_id, mult)
-
-                    cap_tag = "👑" if pick.get('is_captain') else ""
-                    tc_tag = "×3🔥" if (pick.get('is_captain') and active_chip == '3xc') else ""
-                    vc_tag = "(VC)" if pick.get('is_vice_captain') and not pick.get('is_captain') else ""
-                    captain_display = f"{cap_tag}{tc_tag}" if cap_tag else vc_tag
-
-                    players_output += f"• {p_name} {captain_display} {p_icons}{def_icon}: **{p_pts_val}**\n"
-                    event_points_before_hits += p_pts_raw
-                players_output += "\n"
-
-        if len(picks_data["picks"]) > 11:
-            players_output += "🔄 **اللاعبون البدلاء:**\n\n"
-            for pick in picks_data["picks"][11:]:
-                p_id = pick['element']
-                p_name = sanitize_markdown(players_dict.get(p_id, "Unknown"))
-                p_pts_val, p_pts_raw, p_icons, def_icon = get_player_row(p_id, 1)
-                players_output += f"• {p_name} {p_icons}{def_icon}: **{p_pts_val}**\n"
-                if active_chip == "bboost":
-                    event_points_before_hits += p_pts_raw
-            players_output += "\n"
-
-        if "entry_history" in picks_data:
-            event_rank = safe_int(picks_data["entry_history"].get("rank", 0))
-            transfers_cost = safe_int(picks_data["entry_history"].get("event_transfers_cost", 0))
-            total_transfers = safe_int(picks_data["entry_history"].get("event_transfers", total_transfers))
-
-    event_points_after_hits = event_points_before_hits - transfers_cost
-
-    chips_status = ""
-    if history and "chips" in history:
-        used_chips = history["chips"]
-        chips_info = {
-            "3xc": "👑 تثليث القائد (TC)",
-            "bboost": "💺 تفعيل الدكة (BB)",
-            "freehit": "🃏 ضربة الحظ (FH)",
-            "wildcard": "🛠 بطاقة الوحش (WC)"
-        }
-        chips_status = "🎭 **البطاقات (Chips):**\n"
-        for chip_key, chip_name in chips_info.items():
-            all_usages = [c for c in used_chips if c['name'] == chip_key]
-            if gameweek <= 19:
-                usage = next((c for c in all_usages if c['event'] <= 19), None)
-            else:
-                usage = next((c for c in all_usages if c['event'] > 19), None)
-
-            if active_chip == chip_key:
-                chips_status += f"• **{chip_name}: تلعب الآن 🟢**\n"
-            elif usage:
-                chips_status += f"• ~~{chip_name}~~: الجولة {usage['event']} 🔴\n"
-            else:
-                chips_status += f"• _{chip_name}_: لم تلعب 🟡\n"
-        chips_status += "\n"
-    else:
-        chips_status = "🎭 **حالة البطاقات (Chips):** لا توجد بيانات متاحة حالياً\n\n"
-
-    rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
-    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
-    bb_indicator = " (تشمل البدلاء 💺)" if active_chip == "bboost" else ""
-
-    transfers_text = f"🔄 انتقالات الجولة: *{total_transfers}*"
-    if transfers_cost > 0:
-        transfers_text += f" (-{transfers_cost})"
-
-    if transfers_cost > 0:
-        points_display = f"*{event_points_after_hits}* ({event_points_before_hits})"
-    else:
-        points_display = f"*{event_points_before_hits}*"
-
+    
+    # تغير الترتيب
+    rank_change_display = get_rank_change_display(manager_id, gameweek, history)
+    
+    # ============================================================
+    # بناء العرض المبسط
+    # ============================================================
     response = (
-        f"🎮 **{name}**\n"
-        f"🆔 `{manager_id}`\n"
-        f"📅 انضم: {joined}\n"
-        f"📊 **الجولة {gameweek}**\n"
-        f"⭐ نقاط الجولة: {points_display}{bb_indicator}\n"
-        f"🌍 متوسط نقاط الجولة: *{avg_points}*\n"
-        f"🏆 النقاط الكلية: *{total_points:,}*\n"
-        f"📈 الترتيب العالمي: *{rank_str}*{rank_change_display}\n"
-        f"{transfers_text}\n"
-        f"📊 ترتيب الجولة: *{event_rank_str}*\n\n"
+        f"📊 **إحصائيات الجولة {gameweek}**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⭐️ نقاط الجولة: **{event_points_after_hits}**\n"
+        f"🌍 متوسط الجولة: **{avg_points}**\n"
+        f"🏆 نقاط المدرب عمومًا: **{total_points:,}**\n"
+        f"📈 الترتيب العالمي: **{rank_str}**{rank_change_display}\n"
+        f"📊 ترتيب الجولة: **{event_rank_str}**\n"
+        f"🔄 انتقالات الجولة: **{transfers_made}**" + (f" (-{transfers_cost})" if transfers_cost > 0 else "")
     )
-
-    response += chips_status
-
-    if team_value > 0 or bank_value > 0:
-        response += (
-            f"💰 **المالية:**\n"
-            f"• قيمة التشكيلة: *£{team_value:.1f}m*\n"
-            f"• البنك: *£{bank_value:.1f}m*\n"
-            f"• الإجمالي: *£{total_value_display:.1f}m*\n\n"
-        )
-
-    response += "🧑‍🤝‍🧑 **اللاعبون:**\n\n"
-    response += players_output
-
+    
+    # ============================================================
+    # عرض البطاقات (Chips)
+    # ============================================================
+    response += "\n\n🎭 **البطاقات:**\n"
+    
+    # تحديد البطاقة النشطة حالياً
+    active_chip = picks_data.get("active_chip") if picks_data else None
+    
+    # تعريف البطاقات
+    chips_info = {
+        "3xc": {"name": "👑 TC", "display": "تثليث القائد"},
+        "bboost": {"name": "💺 BB", "display": "تفعيل الدكة"},
+        "freehit": {"name": "🃏 FH", "display": "ضربة الحظ"},
+        "wildcard": {"name": "🛠 WC", "display": "بطاقة الوحش"}
+    }
+    
+    # الحصول على تاريخ استخدام البطاقات
+    used_chips = {}
+    if history and "chips" in history:
+        for chip in history["chips"]:
+            chip_name = chip.get("name")
+            chip_event = chip.get("event")
+            # تخزين الجولة التي استخدمت فيها البطاقة
+            if chip_name not in used_chips:
+                used_chips[chip_name] = chip_event
+    
+    # عرض كل بطاقة
+    for chip_key, chip_info in chips_info.items():
+        if active_chip == chip_key:
+            # البطاقة نشطة حالياً
+            response += f"{chip_info['name']} — تلعب الآن 🟢\n"
+        elif chip_key in used_chips:
+            # البطاقة استخدمت سابقاً
+            response += f"{chip_info['name']} — الجولة {used_chips[chip_key]} 🔴\n"
+        else:
+            # البطاقة لم تستخدم
+            response += f"{chip_info['name']} — لم تُلعب 🟢\n"
+    
     return response
 
 def format_leagues_display(manager_id, info, gameweek, history):
@@ -944,7 +1289,7 @@ def get_fixtures_keyboard(manager_id, gameweek):
 
             keyboard.append([InlineKeyboardButton(match_label, callback_data=f"match_{manager_id}_{gameweek}_{f_id}")])
 
-    keyboard.append([InlineKeyboardButton("🔙 العودة للرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
+    keyboard.append([InlineKeyboardButton("🔙 العودة للرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
     return InlineKeyboardMarkup(keyboard)
 
 def format_deadline_display(manager_id, info, gameweek):
@@ -985,14 +1330,15 @@ def format_deadline_display(manager_id, info, gameweek):
             last_match_display = f"{last_time} - {last_date}"
 
     response = (
-        f"📅 **مواعيد الجولة {gameweek}**\n"
-        f"👤 {name}\n"
-        f"🕐 آخر تحديث: {update_time_str} - {update_date_str} (توقيت مكة)\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔒 **موعد غلق الانتقالات:** {deadline_display}\n"
-        f"⚽ **بداية الجولة (أول مباراة):** {first_match_display}\n"
-        f"🏁 **نهاية الجولة (آخر مباراة):** {last_match_display}\n"
-        f"\n🕌 جميع الأوقات بتوقيت مكة المكرمة (UTC+3)"
+        f"📅 مواعيد الجولة {gameweek}\n"
+        f"\n"
+        f"🕐 آخر تحديث: {update_time_str} — {update_date_str}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔒 غلق الانتقالات: {deadline_display}\n"
+        f"🎯 بداية الجولة: {first_match_display}\n"
+        f"🏁 نهاية الجولة: {last_match_display}\n"
+        f"\n"
+        f"⏰ جميع الأوقات بتوقيت مكة المكرمة (UTC+3)"
     )
     return response
 
@@ -1159,26 +1505,138 @@ def format_price_changes_display(manager_id, info, gameweek):
     return response
 
 # ============================================================
+# دوال التحقق من الدوري
+# ============================================================
+
+
+def get_league_entries(league_id):
+    """جلب قائمة المشاركين في الدوري"""
+    url = f"{BASE_URL}/leagues-classic/{league_id}/standings/"
+    data = safe_api_request(url, "get_league_entries")
+    
+    if data and "standings" in data and "results" in data["standings"]:
+        entries = []
+        for result in data["standings"]["results"]:
+            entry_id = result.get("entry")
+            if entry_id:
+                entries.append(entry_id)
+        return entries
+    return []
+
+def is_user_in_league(manager_id, league_id):
+    """التحقق من أن المدرب مشترك في الدوري"""
+    league_entries = get_league_entries(league_id)
+    return manager_id in league_entries
+
+# ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
+
+
+
+def get_league_keyboard(league_id, page, total_pages, manager_id=None, league_type="classic"):
+    """إنشاء أزرار التنقل في الدوري"""
+    keyboard = []
+    
+    # أزرار التنقل
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"league_{league_type}_{league_id}_{page-1}"))
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"league_{league_type}_{league_id}_{page+1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # أزرار تبديل نوع الدوري
+    toggle_buttons = []
+    if league_type == "classic":
+        toggle_buttons.append(InlineKeyboardButton("🏆 كأس الدوري", callback_data=f"league_h2h_{league_id}_1"))
+    else:
+        toggle_buttons.append(InlineKeyboardButton("📊 الدوري العادي", callback_data=f"league_classic_{league_id}_1"))
+    
+    keyboard.append(toggle_buttons)
+    
+    # أزرار إضافية
+    bottom_buttons = []
+    if manager_id:
+        bottom_buttons.append(InlineKeyboardButton("🔙 الرئيسية", callback_data=f"simple_{manager_id}_{get_current_gameweek()}"))
+    
+    if bottom_buttons:
+        keyboard.append(bottom_buttons)
+    
+    return InlineKeyboardMarkup(keyboard)
+
+def format_league_display(league_id, page=1, per_page=10, manager_id=None, league_type="classic"):
+    """تنسيق عرض ترتيب الدوري (مع دعم الكأس)"""
+    if league_type == "h2h":
+        return format_h2h_league_display(league_id, page, per_page, manager_id)
+    
+    # الدوري العادي (Classic)
+    data = get_league_standings(league_id, page)
+    
+    if not data or "standings" not in data:
+        return "❌ حدث خطأ في جلب بيانات الدوري", None
+    
+    standings = data["standings"]
+    entries = standings.get("results", [])
+    total_entries = standings.get("total", 0)
+    total_pages = (total_entries + per_page - 1) // per_page
+    
+    # اسم الدوري
+    league_name = standings.get("league", {}).get("name", "الدوري الخاص")
+    
+    # تاريخ التحديث
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date = now_mecca.strftime("%d/%m/%Y")
+    
+    # بناء النص
+    response = (
+        f"🏆 **{league_name}**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 الصفحة {page} من {total_pages}\n"
+        f"👥 عدد المشاركين: {total_entries}\n"
+        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+    
+    if not entries:
+        response += "🚫 لا يوجد مشاركين في هذه الصفحة\n"
+        return response, None
+    
+    # عرض المشاركين
+    start_index = (page - 1) * per_page + 1
+    for idx, entry in enumerate(entries, start=start_index):
+        response += format_league_entry(entry, idx, get_current_gameweek())
+        response += "\n"
+    
+    # إحصائيات سريعة
+    if entries:
+        top_score = max([e.get("event_total", 0) for e in entries])
+        top_name = max(entries, key=lambda x: x.get("event_total", 0)).get("entry_name", "")
+        response += f"━━━━━━━━━━━━━━━━━━━━━\n"
+        response += f"⚡ أعلى نقاط في الجولة: **{top_score}** نقطة ({top_name})\n"
+    
+    return response, total_pages
 
 def get_buttons(manager_id, gameweek, current_view):
     next_gw = get_next_gameweek(gameweek)
     prev_gw = get_previous_gameweek(gameweek)
 
     keyboard = [
-        [InlineKeyboardButton("📋 عرض بسيط", callback_data=f"simple_{manager_id}_{gameweek}"),
-         InlineKeyboardButton("📊 عرض مفصل", callback_data=f"detail_{manager_id}_{gameweek}")],
+        [InlineKeyboardButton("📊 عرض معلومات المدرب", callback_data=f"detail_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}"),
          InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
          InlineKeyboardButton("📈 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
+        [InlineKeyboardButton("🏆 ترتيب الدوري", callback_data=f"league_classic_{LEAGUE_ID}_1")],
+        [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data="fdr_0")], 
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
     return InlineKeyboardMarkup(keyboard)
-
 def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
     keyboard = []
 
@@ -1216,25 +1674,97 @@ def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
     if nav_buttons:
         keyboard.append(nav_buttons)
 
-    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
+    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
 
     return InlineKeyboardMarkup(keyboard)
 
 def get_subscription_button():
     keyboard = []
+    
+    # أزرار القنوات
     for channel in CHANNELS:
         keyboard.append([
             InlineKeyboardButton(f"📢 اشترك في {channel['name']}", url=f"https://t.me/{channel['id'].replace('@', '')}")
         ])
+    
+    # زر الدوري الخاص
+    keyboard.append([
+        InlineKeyboardButton(f"🏆 انضم للدوري {LEAGUE_NAME}", url=f"https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/")
+    ])
+    
+    # زر التحقق
     keyboard.append([
         InlineKeyboardButton("✅ تم الاشتراك - تحقق مرة أخرى", callback_data="check_0")
     ])
+    
     return InlineKeyboardMarkup(keyboard)
 
 # ============================================================
 # دوال إدارة الأزرار
 # ============================================================
 
+
+async def league_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض ترتيب الدوري"""
+    user_id = update.effective_user.id
+    
+    # التحقق من الاشتراك في القنوات
+    is_subscribed = await check_subscription(context, user_id)
+    if not is_subscribed:
+        await update.message.reply_text(
+            "🔒 **يرجى الاشتراك في القنوات أولاً!**\n"
+            "استخدم /start للتحقق من الاشتراك.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # الحصول على معرف المدرب من context
+    manager_id = context.user_data.get('current_manager_id')
+    
+    if not manager_id:
+        await update.message.reply_text(
+            "❌ **يرجى إرسال معرف مدربك أولاً!**\n\n"
+            "أرسل رقم معرفك لبدء استخدام البوت.\n"
+            "مثال: `2794801`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # التحقق من اشتراك المدرب في الدوري
+    if not is_user_in_league(manager_id, LEAGUE_ID):
+        await update.message.reply_text(
+            f"🏆 **عذراً، أنت غير مشترك في الدوري الخاص!**\n\n"
+            f"📌 **الدوري:** {LEAGUE_NAME}\n"
+            f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
+            f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
+            f"🔗 **رابط الدوري:**\n"
+            f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/`\n\n"
+            f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    # جلب بيانات الدوري
+    msg = await update.message.reply_text("🔄 جاري تحميل ترتيب الدوري...")
+    
+    try:
+        text, total_pages = format_league_display(LEAGUE_ID, page=1, per_page=10, manager_id=manager_id, league_type="classic")
+        
+        if text and total_pages:
+            keyboard = get_league_keyboard(LEAGUE_ID, 1, total_pages, manager_id, league_type="classic")
+            await msg.delete()
+            await update.message.reply_text(
+                text=text,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        else:
+            await msg.edit_text("❌ حدث خطأ في تحميل بيانات الدوري")
+            
+    except Exception as e:
+        logger.error(f"خطأ في عرض الدوري: {e}")
+        await msg.edit_text(f"❌ حدث خطأ: {str(e)[:100]}")
+        
 async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """الأمر /admin - لوحة تحكم المدير"""
     user_id = update.effective_user.id
@@ -1359,8 +1889,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         
         await query.edit_message_text(
             f"✍️ **أرسل نص الإعلان الآن**\n\n"
-            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم\n"
-            f"🔹 لإلغاء الإرسال، أرسل /cancel",
+            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم\n",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("❌ إلغاء", callback_data="ad_cancel")]
@@ -1529,15 +2058,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ============================================================
     if user_id in ADMIN_IDS and user_id in awaiting_ad_message:
         logger.info(f"⏭️ تم تجاهل رسالة من الأدمن {user_id} - في حالة انتظار إعلان")
-        return  # الخروج فوراً دون أي معالجة إضافية
+        return
 
     # ============================================================
-    # حفظ المستخدم في القائمة إذا لم يكن موجوداً
+    # حفظ المستخدم في الملف إذا لم يكن موجوداً
     # ============================================================
     if user_id not in USERS_SET:
         USERS_SET.add(user_id)
+        save_users()
         logger.info(f"👤 مستخدم جديد: {user_id} - إجمالي المستخدمين: {len(USERS_SET)}")
-    
+
     # ============================================================
     # التحقق من الاشتراك في القنوات
     # ============================================================
@@ -1579,7 +2109,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✓ قيمة الفريق والرصيد البنكي 💰\n"
             "✓ ترتيبك في الدوريات المختلفة\n"
             "✓ تاريخ المواسم السابقة\n"
-            "✓ نتائج المباريات وتفاصيلها ⚽\n"
+            "✓ نتائج المباريات وتفاصيلها ⚽️\n"
             "✓ مواعيد الديدلاين والانتقالات ⏰\n\n"
             "🔑 **كيف تحصل على معرف المدرب؟**\n"
             "افتح موقع FPL، الرقم في رابط حسابك:\n"
@@ -1598,6 +2128,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except ValueError:
         await update.message.reply_text(
             "❌ يرجى إرسال **رقم معرف المدرب** فقط.\nمثال: `1234567`\nأو أرسل /help للمساعدة",
+            parse_mode='Markdown'
+        )
+        return
+
+    # ============================================================
+    # التحقق من اشتراك المدرب في الدوري الخاص
+    # ============================================================
+    if not is_user_in_league(manager_id, LEAGUE_ID):
+        await update.message.reply_text(
+            f"🏆 **عذراً، أنت غير مشترك في الدوري الخاص!**\n\n"
+            f"📌 **الدوري:** {LEAGUE_NAME}\n"
+            f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
+            f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
+            f"🔗 **رابط الدوري:**\n"
+            f"اضغط على الرابط للانضمام:\n"
+            f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/`\n\n"
+            f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
             parse_mode='Markdown'
         )
         return
@@ -1629,8 +2176,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ============================================================
     picks_data = get_manager_picks(manager_id, start_gameweek)
     history = get_manager_history(manager_id)
-    text = format_simple_display(manager_id, info, start_gameweek, picks_data, history)
-    reply_markup = get_buttons(manager_id, start_gameweek, "simple")
+    text = format_detailed_display(manager_id, info, start_gameweek, picks_data, history)
+    reply_markup = get_buttons(manager_id, start_gameweek, "detail")  
 
     try:
         await msg_checking.delete()
@@ -1639,7 +2186,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"فشل حذف الرسائل المؤقتة: {e}")
 
     await update.message.reply_text(text=text, parse_mode='Markdown', reply_markup=reply_markup)
-    
+
+
 def get_teams_keyboard(manager_id, gameweek):
     teams_dict = get_teams_dict()
     keyboard = []
@@ -1844,16 +2392,186 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(parts) < 2:
         logger.warning(f"تنسيق غير صحيح للبيانات: {data}")
         return
+
     # معالجة أزرار لوحة التحكم (تبدأ بـ admin_ أو ad_)
     if data.startswith("admin_") or data.startswith("ad_"):
         await handle_admin_callback(update, context)
         return
-    
+
+    # ============================================================
+    # ✅ معالجة التنقل في الدوري (معدل)
+    # ============================================================
+    if parts[0] == "league":
+        if len(parts) >= 4:
+            league_type = parts[1]  # "classic" أو "h2h"
+            league_id = parts[2]
+            page = int(parts[3])
+            
+            # التحقق من الاشتراك في القنوات
+            is_subscribed_channels = await check_subscription(context, user_id)
+            if not is_subscribed_channels:
+                channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+                await query.edit_message_text(
+                    text=f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+                         f"{channels_list}\n\n"
+                         f"✅ بعد الاشتراك في الكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+                    parse_mode='Markdown',
+                    reply_markup=get_subscription_button()
+                )
+                return
+            
+            # الحصول على معرف المدرب
+            manager_id = context.user_data.get('current_manager_id')
+            
+            # التحقق من وجود معرف مدرب
+            if not manager_id:
+                await query.edit_message_text(
+                    text="❌ **يرجى إرسال معرف مدربك أولاً!**\n\n"
+                         f"أرسل رقم معرفك لبدء استخدام البوت.\n"
+                         f"مثال: `2794801`",
+                    parse_mode='Markdown'
+                )
+                return
+            
+            # التحقق من اشتراك المدرب في الدوري
+            if not is_user_in_league(manager_id, LEAGUE_ID):
+                await query.edit_message_text(
+                    text=f"🏆 **عذراً، أنت غير مشترك في الدوري الخاص!**\n\n"
+                         f"📌 **الدوري:** {LEAGUE_NAME}\n"
+                         f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
+                         f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
+                         f"🔗 **رابط الدوري:**\n"
+                         f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/`\n\n"
+                         f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
+                    parse_mode='Markdown'
+                )
+                return
+            
+            await query.edit_message_text(f"🔄 جاري تحميل {'كأس' if league_type == 'h2h' else ''} الدوري...")
+            
+            try:
+                text, total_pages = format_league_display(
+                    league_id, 
+                    page=page, 
+                    per_page=10, 
+                    manager_id=manager_id, 
+                    league_type=league_type
+                )
+                
+                if text and total_pages:
+                    keyboard = get_league_keyboard(league_id, page, total_pages, manager_id, league_type)
+                    await query.edit_message_text(
+                        text=text,
+                        parse_mode='Markdown',
+                        reply_markup=keyboard
+                    )
+                else:
+                    await query.edit_message_text("❌ حدث خطأ في تحميل بيانات الدوري")
+                    
+            except Exception as e:
+                logger.error(f"خطأ في تحميل صفحة الدوري: {e}")
+                await query.edit_message_text(f"❌ حدث خطأ: {str(e)[:100]}")
+            return
+
+    # ============================================================
+    # ✅ معالجة FDR
+    # ============================================================
+    if parts[0] == "fdr":
+        # التحقق من الاشتراك في القنوات
+        is_subscribed_channels = await check_subscription(context, user_id)
+        if not is_subscribed_channels:
+            channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+            await query.edit_message_text(
+                text=f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
+                     f"{channels_list}\n\n"
+                     f"✅ بعد الاشتراك في الكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+                parse_mode='Markdown',
+                reply_markup=get_subscription_button()
+            )
+            return
+        
+        if len(parts) >= 2:
+            action = parts[1]
+            
+            if action == "back":
+                # العودة للقائمة الرئيسية
+                manager_id = context.user_data.get('current_manager_id')
+                if not manager_id:
+                    await query.edit_message_text("❌ يرجى إرسال معرف المدرب")
+                    return
+                
+                gameweek = get_current_gameweek()
+                info = get_manager_info(manager_id)
+                if not info:
+                    await query.edit_message_text("❌ لم أتمكن من العثور على المدرب")
+                    return
+                
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
+                reply_markup = get_buttons(manager_id, gameweek, "detail")
+                
+                await query.edit_message_text(
+                    text=text,
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+                return
+            else:
+                # التنقل بين الصفحات
+                try:
+                    page = int(action)
+                    
+                    await query.edit_message_text("🔄 جاري تحميل جدول صعوبة المباريات...")
+                    
+                    text, total_pages, current_page = format_fdr_display(page=page, per_page=2)
+                    
+                    if text:
+                        keyboard = get_fdr_keyboard(page=current_page, total_pages=total_pages)
+                        await query.edit_message_text(
+                            text=text,
+                            parse_mode='Markdown',
+                            reply_markup=keyboard
+                        )
+                    else:
+                        await query.edit_message_text("❌ حدث خطأ في تحميل البيانات")
+                        
+                except ValueError:
+                    await query.edit_message_text("❌ حدث خطأ غير متوقع")
+                except Exception as e:
+                    logger.error(f"خطأ في عرض FDR: {e}")
+                    await query.edit_message_text(f"❌ حدث خطأ: {str(e)[:100]}")
+            return
+
+    # ============================================================
+    # التحقق من الاشتراك في القنوات والدوري لجميع الأزرار الأخرى
+    # ============================================================
     if parts[0] == "check":
         logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
-        is_subscribed = await check_subscription(context, user_id)
+        
+        # 1. التحقق من القنوات
+        is_subscribed_channels = await check_subscription(context, user_id)
+        
+        # 2. التحقق من وجود معرف مدرب في context
+        manager_id = context.user_data.get('current_manager_id')
+        is_in_league = False
+        
+        if manager_id:
+            is_in_league = is_user_in_league(manager_id, LEAGUE_ID)
+        else:
+            # إذا لم يكن هناك معرف مدرب، نطلب إرساله أولاً
+            await context.bot.edit_message_text(
+                text=f"📝 **يرجى إرسال معرف مدربك أولاً!**\n\n"
+                     f"أرسل رقم معرفك لبدء استخدام البوت.\n"
+                     f"مثال: `2794801`",
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode='Markdown'
+            )
+            return
 
-        if is_subscribed:
+        if is_subscribed_channels and is_in_league:
+            # ✅ جميع الشروط محققة
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
             except Exception as e:
@@ -1880,17 +2598,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await context.bot.send_message(chat_id=chat_id, text=welcome_text, parse_mode='Markdown')
         else:
-            channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
+            # ❌ فشل التحقق
+            error_messages = []
+            
+            if not is_subscribed_channels:
+                error_messages.append("📢 اشترك في جميع القنوات")
+            
+            if not is_in_league:
+                error_messages.append(f"🏆 انضم للدوري {LEAGUE_NAME}")
+            
+            error_text = "❌ **لم يتم العثور على اشتراكك في:**\n\n" + "\n".join([f"• {msg}" for msg in error_messages])
+            
             await context.bot.edit_message_text(
-                text=f"❌ **لم يتم العثور على اشتراكك في جميع القنوات بعد.**\n\n"
-                     f"يرجى الانضمام إلى جميع القنوات أولاً:\n{channels_list}",
-                chat_id=chat_id, message_id=message_id, parse_mode='Markdown',
+                text=error_text + "\n\n✅ بعد الانضمام للكل، اضغط على زر 'تم الاشتراك - تحقق مرة أخرى'.",
+                chat_id=chat_id,
+                message_id=message_id,
+                parse_mode='Markdown',
                 reply_markup=get_subscription_button()
             )
         return
 
-    is_subscribed = await check_subscription(context, user_id)
-    if not is_subscribed:
+    # ============================================================
+    # التحقق من الاشتراك في القنوات والدوري لجميع الأزرار الأخرى
+    # ============================================================
+    is_subscribed_channels = await check_subscription(context, user_id)
+    
+    if not is_subscribed_channels:
         channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
         await context.bot.edit_message_text(
             text=f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
@@ -1918,6 +2651,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # ============================================================
+    # التحقق من اشتراك المدرب في الدوري الخاص
+    # ============================================================
+    if not is_user_in_league(manager_id, LEAGUE_ID):
+        await context.bot.edit_message_text(
+            text=f"🏆 **عذراً، أنت غير مشترك في الدوري الخاص!**\n\n"
+                 f"📌 **الدوري:** {LEAGUE_NAME}\n"
+                 f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
+                 f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
+                 f"🔗 **رابط الدوري:**\n"
+                 f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/`\n\n"
+                 f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode='Markdown'
+        )
+        return
+
+    # ============================================================
+    # معالجة الأزرار المختلفة
+    # ============================================================
     try:
         if parts[0] == "poslist":
             gameweek = int(parts[2])
@@ -2043,7 +2797,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             match_keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 العودة لقائمة المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
-                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")]
             ])
 
             await context.bot.edit_message_text(
@@ -2056,9 +2810,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gameweek = int(parts[2])
             current_text = query.message.text or ""
 
-            if "العرض المفصل" in current_text or "اللاعبون الأساسيون" in current_text:
-                view_type = "detail"
-            elif "الدوريات" in current_text:
+            if "الدوريات" in current_text:
                 view_type = "leagues"
             elif "مباريات الجولة" in current_text or "اختر المباراة" in current_text:
                 view_type = "fixtures"
@@ -2067,7 +2819,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif "تغيرات وتوقعات" in current_text:
                 view_type = "price"
             else:
-                view_type = "simple"
+                view_type = "detail"
 
             await context.bot.edit_message_text(
                 text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
@@ -2094,15 +2846,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='Markdown', reply_markup=reply_markup
                 )
                 return
-            else:
+            elif view_type == "leagues":
+                history = get_manager_history(manager_id)
+                text = format_leagues_display(manager_id, info, gameweek, history)
+            else:  # detail
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
-                text_map = {
-                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                    "leagues": format_leagues_display(manager_id, info, gameweek, history)
-                }
-                text = text_map.get(view_type, "")
+                text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
 
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
@@ -2110,14 +2860,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        elif parts[0] in ["simple", "detail", "leagues", "deadline", "price"]:
+        elif parts[0] in ["detail", "leagues", "deadline", "price"]:
             view_type = parts[0]
             gameweek = int(parts[2])
 
             loading_texts = {
-                "simple": "العرض البسيط", "detail": "العرض المفصل",
+                "detail": "عرض معلومات المدرب",
                 "leagues": "الدوريات والمواسم",
-                "deadline": "مواعيد الجولة", "price": "توقعات وتغيرات الأسعار"
+                "deadline": "مواعيد الجولة", 
+                "price": "توقعات وتغيرات الأسعار"
             }
 
             await context.bot.edit_message_text(
@@ -2137,15 +2888,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text = format_deadline_display(manager_id, info, gameweek)
             elif view_type == "price":
                 text = format_price_changes_display(manager_id, info, gameweek)
-            else:
+            elif view_type == "leagues":
+                history = get_manager_history(manager_id)
+                text = format_leagues_display(manager_id, info, gameweek, history)
+            else:  # detail
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
-                text_map = {
-                    "simple": format_simple_display(manager_id, info, gameweek, picks_data, history),
-                    "detail": format_detailed_display(manager_id, info, gameweek, picks_data, history),
-                    "leagues": format_leagues_display(manager_id, info, gameweek, history)
-                }
-                text = text_map.get(view_type, "")
+                text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
 
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
@@ -2162,7 +2911,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as edit_error:
             logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
-
+            
 # ============================================================
 # تشغيل البوت
 # ============================================================
@@ -2177,7 +2926,8 @@ def main():
     application.add_handler(CommandHandler("start", handle_message))
     application.add_handler(CommandHandler("help", handle_message))
     application.add_handler(CommandHandler("admin", handle_admin_command))
-    
+    application.add_handler(CommandHandler("league", league_command))
+    application.add_handler(CommandHandler("match_diff", match_diff_command))
     # 2. معالج الإعلانات في (Group 1)
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ad_message),
