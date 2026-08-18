@@ -6,7 +6,7 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from telegram.ext import ApplicationHandlerStop
-
+import psycopg2
 
 # ============================================================
 # الإعدادات الأساسية والتكوين
