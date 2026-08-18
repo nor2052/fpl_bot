@@ -7,9 +7,12 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from telegram.ext import ApplicationHandlerStop
 
+
 # ============================================================
 # الإعدادات الأساسية والتكوين
 # ============================================================
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -31,7 +34,50 @@ CHANNELS = [
 
 ADMIN_IDS = [7095210809, 2046683919, 1401110823]  
 
-USERS_SET = set()
+def init_db():
+    if not DATABASE_URL:
+        return
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            first_name TEXT,
+            username TEXT
+        )
+    ''')
+    conn.commit()
+    cursor.close()
+    conn.close()
+    
+def add_user(user_id: int, first_name: str, username: str):
+    if not DATABASE_URL:
+        return
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO users (user_id, first_name, username) 
+        VALUES (%s, %s, %s)
+        ON CONFLICT (user_id) 
+        DO UPDATE SET first_name = EXCLUDED.first_name, username = EXCLUDED.username
+    ''', (user_id, first_name, username))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+def get_all_users() -> set:
+    if not DATABASE_URL:
+        return set()
+    conn = psycopg2.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id FROM users')
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return {row[0] for row in rows}
+
+# تهيئة قاعدة البيانات وإنشاء الجدول فور تشغيل الملف
+init_db()
 
 awaiting_ad_message = {}
 
@@ -994,7 +1040,7 @@ async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYP
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    total_users = len(USERS_SET)
+    total_users = len(get_all_users())
     current_time = datetime.now(timezone.utc) + timedelta(hours=3)
     time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
     
@@ -1026,7 +1072,9 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     if data == "admin_stats":
-        total_users = len(USERS_SET)
+        all_users = get_all_users()
+        total_users = len(all_users)
+        users_list = list(all_users)
         current_time = datetime.now(timezone.utc) + timedelta(hours=3)
         time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
         
@@ -1134,7 +1182,8 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        total_users = len(USERS_SET)
+        all_users = get_all_users()
+        total_users = len(all_users)
         current_time = datetime.now(timezone.utc) + timedelta(hours=3)
         time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
         
@@ -1231,15 +1280,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     message_text = update.message.text.strip()
-    user_id = update.effective_user.id
+    user = update.effective_user
+    add_user(user.id, user.first_name, user.username)
 
     if user_id in ADMIN_IDS and user_id in awaiting_ad_message:
         logger.info(f"⏭️ تم تجاهل رسالة من الأدمن {user_id} - في حالة انتظار إعلان")
         return
 
-    if user_id not in USERS_SET:
-        USERS_SET.add(user_id)
-        logger.info(f"👤 مستخدم جديد: {user_id} - إجمالي المستخدمين: {len(USERS_SET)}")
+    add_user(user_id)
     
     try:
         is_subscribed = await check_subscription(context, user_id)
