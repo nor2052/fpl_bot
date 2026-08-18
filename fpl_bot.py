@@ -311,7 +311,7 @@ def get_fdr_keyboard(page=0, total_pages=1):
 
 def get_h2h_league_standings(league_id, page=1):
     """جلب ترتيب الدوري بنظام الكأس (Head-to-Head)"""
-    url = f"{BASE_URL}/leagues-h2h/{league_id}/standings/"
+    url = f"{BASE_URL}/en/leagues-h2h/{league_id}/standings/"
     if page > 1:
         url += f"?page={page}"
     
