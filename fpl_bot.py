@@ -1735,26 +1735,48 @@ def get_subscription_button():
 
 async def league_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # جلب معرف المدرب المحفوظ في جلسة المستخدم
-    manager_id = context.user_data.get("current_manager_id") or context.user_data.get("manager_id")
+    manager_id = context.user_data.get("current_manager_id")
 
     if not manager_id:
-        await update.message.reply_text("⚠️ يرجى إرسال رقم مدربك (Manager ID) أولاً لاستعراض بيانات الدوري.")
+        await update.message.reply_text(
+            "⚠️ **يرجى إرسال رقم معرف المدرب (Manager ID) الخاص بك أولاً في الشات.**",
+            parse_mode='Markdown'
+        )
         return
 
-    msg = await update.message.reply_text("🔄 جاري التحقق من الترتيب في الدوري...")
+    msg = await update.message.reply_text("🔄 جاري التحقق وجلب بيانات الدوري...")
 
-    if is_user_in_league(manager_id, LEAGUE_ID):
-        text, total_pages = format_league_display(LEAGUE_ID, page=1, manager_id=manager_id)
-        keyboard = get_league_keyboard(LEAGUE_ID, page=1, total_pages=total_pages, manager_id=manager_id)
-        await msg.edit_text(text=text, parse_mode='Markdown', reply_markup=keyboard)
-    else:
+    # التحقق هل المستخدم انضم للدوري المعتمد أم لا
+    if not is_user_in_league(manager_id, LEAGUE_ID):
         await msg.edit_text(
-            f"🏆 **أنت غير مشترك في دوري {LEAGUE_NAME} حالياً.**\n\n"
-            f"للانضمام واستعراض الترتيب، استخدم الرابط التالي:\n"
-            f"https://fantasy.premierleague.com/leagues/auto-join/wmvdke",
-            disable_web_page_preview=True
+            "🏆 **أنت غير مشترك في هذا الدوري حالياً.**\n\n"
+            "للانضمام واستعراض الترتيب، استخدم الرابط التالي:\n"
+            f"https://fantasy.premierleague.com/leagues/auto-join/wmvdke"
         )
+        return
+
+    # جلب بيانات الدوري بالكامل وتنسيقها بنفس آلية الأزرار
+    try:
+        text, total_pages = format_league_display(
+            league_id=LEAGUE_ID,
+            page=1,
+            per_page=10,
+            manager_id=manager_id,
+            league_type="classic"
+        )
+        
+        if text and total_pages:
+            keyboard = get_league_keyboard(LEAGUE_ID, page=1, total_pages=total_pages, manager_id=manager_id, league_type="classic")
+            await msg.edit_text(
+                text=text,
+                parse_mode='Markdown',
+                reply_markup=keyboard
+            )
+        else:
+            await msg.edit_text("❌ حدث خطأ أثناء جلب بيانات الدوري.")
+    except Exception as e:
+        logger.error(f"خطأ في تنفيذ أمر الدوري: {e}")
+        await msg.edit_text(f"❌ حدث خطأ أثناء التحميل: {str(e)[:100]}")
         
         
 async def handle_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
