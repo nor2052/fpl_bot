@@ -311,7 +311,7 @@ def get_fdr_keyboard(page=0, total_pages=1):
 
 def get_h2h_league_standings(league_id, page=1):
     """جلب ترتيب الدوري بنظام الكأس (Head-to-Head)"""
-    url = f"{BASE_URL}/en/leagues-h2h/{league_id}/standings/"
+    url = f"{BASE_URL}/en/leagues-h2h/{league_id}/standings/c"
     if page > 1:
         url += f"?page={page}"
     
@@ -347,7 +347,7 @@ def get_all_h2h_league_entries(league_id):
 
 def get_h2h_league_matches(league_id, page=1):
     """جلب مباريات دوري الكأس"""
-    url = f"{BASE_URL}/leagues-h2h/{league_id}/matches/"
+    url = f"{BASE_URL}/leagues-h2h/{league_id}/matches"
     if page > 1:
         url += f"?page={page}"
     
@@ -457,7 +457,7 @@ def format_h2h_league_display(league_id, page=1, per_page=10, manager_id=None):
 
 def get_league_standings(league_id, page=1):
     """جلب ترتيب الدوري مع دعم الصفحات"""
-    url = f"{BASE_URL}/leagues-classic/{league_id}/standings/"
+    url = f"{BASE_URL}/leagues-classic/{league_id}/standings/c"
     if page > 1:
         url += f"?page={page}"
     
@@ -1511,7 +1511,7 @@ def format_price_changes_display(manager_id, info, gameweek):
 
 def get_league_entries(league_id):
     """جلب قائمة المشاركين في الدوري"""
-    url = f"{BASE_URL}/leagues-classic/{league_id}/standings/"
+    url = f"{BASE_URL}/leagues-classic/{league_id}/standings/c"
     data = safe_api_request(url, "get_league_entries")
     
     if data and "standings" in data and "results" in data["standings"]:
@@ -1738,7 +1738,7 @@ async def league_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
             f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
             f"🔗 **رابط الدوري:**\n"
-            f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/`\n\n"
+            f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/standings/c`\n\n"
             f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
             parse_mode='Markdown'
         )
@@ -2143,7 +2143,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
             f"🔗 **رابط الدوري:**\n"
             f"اضغط على الرابط للانضمام:\n"
-            f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/`\n\n"
+            f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/standings/c`\n\n"
             f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
             parse_mode='Markdown'
         )
@@ -2441,7 +2441,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                          f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
                          f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
                          f"🔗 **رابط الدوري:**\n"
-                         f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/`\n\n"
+                         f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/standings/c`\n\n"
                          f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
                     parse_mode='Markdown'
                 )
@@ -2661,7 +2661,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  f"🆔 **معرف الدوري:** `{LEAGUE_ID}`\n\n"
                  f"⚠️ للاستفادة من البوت، يجب أن تكون مشتركاً في الدوري.\n\n"
                  f"🔗 **رابط الدوري:**\n"
-                 f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/`\n\n"
+                 f"`https://fantasy.premierleague.com/leagues/{LEAGUE_ID}/standings/c`\n\n"
                  f"✅ بعد الانضمام، أعد إرسال معرف مدربك للتحقق مرة أخرى.",
             chat_id=chat_id,
             message_id=message_id,
