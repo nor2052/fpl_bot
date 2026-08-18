@@ -32,7 +32,7 @@ CHANNELS = [
 
 ADMIN_IDS = [7095210809, 2046683919, 1401110823]  
 
-LEAGUE_ID = "1185162"  # ضع هنا معرف الدوري الخاص بك
+LEAGUE_ID = "1252439"  # ضع هنا معرف الدوري الخاص بك
 LEAGUE_NAME = "Han bot league"  # اسم الدوري للعرض
 
 USERS_FILE = "users_data.json"
