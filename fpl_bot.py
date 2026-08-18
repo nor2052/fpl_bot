@@ -1287,7 +1287,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"⏭️ تم تجاهل رسالة من الأدمن {user_id} - في حالة انتظار إعلان")
         return
 
-    add_user(user_id)
+    add_user(user.id, user.first_name, user.username)
     
     try:
         is_subscribed = await check_subscription(context, user_id)
