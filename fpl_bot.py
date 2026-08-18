@@ -59,7 +59,7 @@ def save_users():
 
 # تحميل المستخدمين عند بدء التشغيل
 USERS_SET = load_users()
-logger.info(f"✅ تم تحميل {len(USERS_SET)} مستخدم من الملف)
+logger.info(f"✅ تم تحميل {len(USERS_SET)} مستخدم من الملف")
 
 awaiting_ad_message = {}
 
