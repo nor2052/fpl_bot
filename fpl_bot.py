@@ -1523,34 +1523,40 @@ def get_league_entries(league_id):
         return entries
     return []
 
-def is_user_in_league(manager_id, league_id):
-    """التحقق مع طباعة البيانات في الكونسول لتشخيص المشكلة"""
+def is_user_in_league(manager_id, target_league_id):
+    """
+    التحقق مما إذا كان المدرب مشاركاً في الدوري المحدد
+    عن طريق فحص قائمة دوريات المدرب مباشرة
+    """
     try:
-        target_id = int(manager_id)
-    except (ValueError, TypeError):
-        print(f"❌ المعرف المدخل غير صالح: {manager_id}")
+        target_league_id = str(target_league_id)
+        info = get_manager_info(manager_id)
+        
+        if not info or "leagues" not in info:
+            logger.warning(f"⚠️ تعذر جلب بيانات الدوريات للمدرب {manager_id}")
+            return False
+
+        # فحص الدوريات الكلاسيكية للمدرب
+        classic_leagues = info.get("leagues", {}).get("classic", [])
+        for league in classic_leagues:
+            if str(league.get("id")) == target_league_id:
+                logger.info(f"✅ المدرب {manager_id} موجود في الدوري الكلاسيكي {target_league_id}")
+                return True
+
+        # فحص دوريات المواجهات المباشرة (H2H) إن وجدت
+        h2h_leagues = info.get("leagues", {}).get("h2h", [])
+        for league in h2h_leagues:
+            if str(league.get("id")) == target_league_id:
+                logger.info(f"✅ المدرب {manager_id} موجود في دوري H2H {target_league_id}")
+                return True
+
+        logger.info(f"❌ المدرب {manager_id} غير مشترك في الدوري {target_league_id}")
         return False
 
-    all_entries = get_all_league_entries(league_id)
-    
-    # --- أسطر الطباعة المضافة للتشخيص ---
-    print("\n" + "="*40)
-    print(f"🎯 رقم المدرب المطلوب البحث عنه: {target_id} (نوعه: {type(target_id)})")
-    print(f"📊 القائمة المرجعة من الـ API (all_entries):")
-    print(all_entries)
-    print("="*40 + "\n")
-    # ----------------------------------
-
-    for entry in all_entries:
-        entry_id = entry.get("entry")
-        print(f"🔍 مقارنة: المدخل ({target_id}) مع الموجود بالدوري ({entry_id})")
+    except Exception as e:
+        logger.error(f"❌ خطأ أثناء التحقق من وجود المدرب في الدوري: {e}")
+        return False
         
-        if entry_id == target_id:
-            print("✅ تم العثور على المطابقة بنجاح!")
-            return True
-            
-    print("❌ لم يتم العثور على المعرف داخل قائمة الدوري.")
-    return False
 # ============================================================
 # دوال الأزرار ومعالجات البوت
 # ============================================================
@@ -1654,7 +1660,7 @@ def get_buttons(manager_id, gameweek, current_view):
         [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
          InlineKeyboardButton("📈 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
-        [InlineKeyboardButton("🏆 ترتيب الدوري", callback_data=f"league_classic_{LEAGUE_ID}_1")],
+        [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"league_classic_{LEAGUE_ID}_1")],
         [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data="fdr_0")], 
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
@@ -1727,26 +1733,27 @@ def get_subscription_button():
 # ============================================================
 
 
-async def league_command(update, context):
+async def league_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    manager_id = context.user_data.get("manager_id") # أو طريقة جلبك لمعرف المدرب
+    # جلب معرف المدرب المحفوظ في جلسة المستخدم
+    manager_id = context.user_data.get("current_manager_id") or context.user_data.get("manager_id")
 
     if not manager_id:
         await update.message.reply_text("⚠️ يرجى إرسال رقم مدربك (Manager ID) أولاً لاستعراض بيانات الدوري.")
         return
 
-    LEAGUE_ID = 1185162
+    msg = await update.message.reply_text("🔄 جاري التحقق من الترتيب في الدوري...")
 
-    # التحقق من الاشتراك فقط داخل هذا الأمر
     if is_user_in_league(manager_id, LEAGUE_ID):
-        # 🟢 هنا تضع كود عرض تفاصيل الدوري (الترتيب، النقاط، إلخ)
-        await update.message.reply_text("📊 **بيانات الدوري الخاص بك:**\n\n[ضع معلومات الدوري هنا]")
+        text, total_pages = format_league_display(LEAGUE_ID, page=1, manager_id=manager_id)
+        keyboard = get_league_keyboard(LEAGUE_ID, page=1, total_pages=total_pages, manager_id=manager_id)
+        await msg.edit_text(text=text, parse_mode='Markdown', reply_markup=keyboard)
     else:
-        # 🔴 إذا لم يكن مشتركاً
-        await update.message.reply_text(
-            "🏆 **أنت غير مشترك في هذا الدوري حالياً.**\n\n"
-            "للانضمام واستعراض الترتيب، استخدم الرابط التالي:\n"
-            "https://fantasy.premierleague.com/leagues/auto-join/wmvdke"
+        await msg.edit_text(
+            f"🏆 **أنت غير مشترك في دوري {LEAGUE_NAME} حالياً.**\n\n"
+            f"للانضمام واستعراض الترتيب، استخدم الرابط التالي:\n"
+            f"https://fantasy.premierleague.com/leagues/auto-join/wmvdke",
+            disable_web_page_preview=True
         )
         
         
