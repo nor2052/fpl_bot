@@ -1078,7 +1078,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         current_time = datetime.now(timezone.utc) + timedelta(hours=3)
         time_str = current_time.strftime("%Y-%m-%d %I:%M %p").lstrip('0').lower()
         
-        users_list = list(USERS_SET)
+        users_list = list(get_all_users())
         users_preview = ""
         if users_list:
             preview_count = min(20, len(users_list))
@@ -1121,7 +1121,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text(
             f"📢 **إرسال إعلان للمستخدمين**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 عدد المستخدمين المستهدفين: **{len(USERS_SET)}**\n"
+            f"👥 عدد المستخدمين المستهدفين: **{len(get_all_users())}**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📝 **طريقة الإرسال:**\n"
             f"1️⃣ اضغط على زر '📢 إرسال إعلان'\n"
@@ -1136,7 +1136,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         
         await query.edit_message_text(
             f"✍️ **أرسل نص الإعلان الآن**\n\n"
-            f"👥 سيتم الإرسال لـ **{len(USERS_SET)}** مستخدم\n"
+            f"👥 سيتم الإرسال لـ **{len(get_all_users())}** مستخدم\n"
             f"🔹 لإلغاء الإرسال، أرسل /cancel",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
@@ -1162,7 +1162,7 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
             f"✅ **تم إلغاء عملية الإعلان**\n\n"
             f"📢 **إرسال إعلان للمستخدمين**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 عدد المستخدمين المستهدفين: **{len(USERS_SET)}**\n"
+            f"👥 عدد المستخدمين المستهدفين: **{len(get_all_users())}**\n"
             f"━━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📝 **طريقة الإرسال:**\n"
             f"1️⃣ اضغط على زر '📢 إرسال إعلان'\n"
@@ -1247,7 +1247,7 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "waiting_for_message":
         await update.message.reply_text(
             f"🔄 **جاري إرسال الإعلان للمستخدمين...**\n"
-            f"👥 عدد المستخدمين: {len(USERS_SET)}\n"
+            f"👥 عدد المستخدمين: {len(get_all_users())}\n"
             f"⏳ قد يستغرق هذا دقائق...",
             parse_mode='Markdown'
         )
@@ -1255,7 +1255,7 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         success, fail = await send_ad_to_users(
             context,
             message_text,
-            list(USERS_SET),
+            list(get_all_users()),
             is_markdown=True
         )
         
@@ -1267,7 +1267,7 @@ async def handle_ad_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📊 **التقرير:**
 • تم الإرسال لـ: **{success}** مستخدم
 • فشل الإرسال لـ: **{fail}** مستخدم
-• إجمالي المستخدمين: **{len(USERS_SET)}**
+• إجمالي المستخدمين: **{len(get_all_users())}**
 
 📝 **نص الإعلان:**
 {message_text[:200]}{'...' if len(message_text) > 200 else ''}
