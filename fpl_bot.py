@@ -1660,7 +1660,7 @@ def get_buttons(manager_id, gameweek, current_view):
         [InlineKeyboardButton("🚨 بدء الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
          InlineKeyboardButton("📈 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
-        [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"league_classic_{LEAGUE_ID}_1")],
+      #  [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"league_classic_{LEAGUE_ID}_1")],
         [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data="fdr_0")], 
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
