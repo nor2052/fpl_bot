@@ -1282,11 +1282,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text.strip()
     user = update.effective_user
     add_user(user.id, user.first_name, user.username)
-
-    if user_id in ADMIN_IDS and user_id in awaiting_ad_message:
-        logger.info(f"⏭️ تم تجاهل رسالة من الأدمن {user_id} - في حالة انتظار إعلان")
+    
+    if not user_id:
         return
-
     add_user(user.id, user.first_name, user.username)
     
     try:
