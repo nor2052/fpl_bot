@@ -1524,17 +1524,32 @@ def get_league_entries(league_id):
     return []
 
 def is_user_in_league(manager_id, league_id):
-    """التحقق من وجود المدرب مع تحويل الأنواع لتجنب أخطاء المطابقة"""
+    """التحقق مع طباعة البيانات في الكونسول لتشخيص المشكلة"""
     try:
         target_id = int(manager_id)
     except (ValueError, TypeError):
+        print(f"❌ المعرف المدخل غير صالح: {manager_id}")
         return False
 
     all_entries = get_all_league_entries(league_id)
+    
+    # --- أسطر الطباعة المضافة للتشخيص ---
+    print("\n" + "="*40)
+    print(f"🎯 رقم المدرب المطلوب البحث عنه: {target_id} (نوعه: {type(target_id)})")
+    print(f"📊 القائمة المرجعة من الـ API (all_entries):")
+    print(all_entries)
+    print("="*40 + "\n")
+    # ----------------------------------
+
     for entry in all_entries:
-        if entry.get("entry") == target_id:
+        entry_id = entry.get("entry")
+        print(f"🔍 مقارنة: المدخل ({target_id}) مع الموجود بالدوري ({entry_id})")
+        
+        if entry_id == target_id:
+            print("✅ تم العثور على المطابقة بنجاح!")
             return True
             
+    print("❌ لم يتم العثور على المعرف داخل قائمة الدوري.")
     return False
 # ============================================================
 # دوال الأزرار ومعالجات البوت
