@@ -2,10 +2,18 @@ import os
 import logging
 import calendar
 from datetime import datetime, timezone, timedelta
+
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
-from telegram.ext import ApplicationHandlerStop
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    ApplicationHandlerStop,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 # ============================================================
 # الإعدادات الأساسية والتكوين
@@ -27,11 +35,15 @@ BASE_URL = "https://fantasy.premierleague.com/api"
 CHANNELS = [
     {"id": "@Fantasypremierlea", "name": "القناة الأولى"},
     {"id": "@Fantasyargoal", "name": "القناة الثانية"},
+    {"id": "@LFCREDS1", "name": "القناة الثالثة"},
 ]
 
 ADMIN_IDS = [7095210809, 2046683919, 1401110823]  
 
 USERS_SET = set()
+
+LEAGUE_ID = 1185162
+LEAGUE_JOIN_URL = "https://fantasy.premierleague.com/leagues/auto-join/wmvdke"
 
 awaiting_ad_message = {}
 
@@ -927,6 +939,140 @@ def format_deadline_display(manager_id, info, gameweek):
 # دوال الأزرار ومعالجات البوت - المعدلة
 # ============================================================
 
+def get_custom_league_standings(page=1):
+    """جلب ترتيب الدوري الخاص بالبوت من الـ API"""
+    url = f"{BASE_URL}/leagues-classic/{LEAGUE_ID}/standings/?page_standings={page}"
+    return safe_api_request(url, "get_custom_league_standings")
+
+def format_custom_league_display(manager_id, gameweek, page=1):
+    """صياغة عرض دوري البوت مع التحقق من اشتراك المدرب"""
+    league_data = get_custom_league_standings(page=1)
+    
+    if not league_data or "standings" not in league_data:
+        return "❌ تعذر جلب بيانات دوري البوت حالياً.", False, 1
+
+    results = league_data["standings"].get("results", [])
+    has_next = league_data["standings"].get("has_next", False)
+    
+    # البحث عن المدرب في جميع صفحات الدوري أو الصفحة الحالية
+    # سنتحقق من الصفحة الأولى أولاً، وفي حال وجود صفحات إضافية يتم الفحص عند الحاجة
+    is_member = False
+    player_league_info = None
+
+    # فحص إذا كان المدرب موجود في الدوري (عبر فحص قائمة النتائج)
+    # ملاحظة: لضمان الدقة العالية نجلب الصفحة الأولى، وإذا كان الدوري كبيراً نفحص معرف المدرب
+    for player in results:
+        if str(player.get("entry")) == str(manager_id):
+            is_member = True
+            player_league_info = player
+            break
+
+    # إذا لم يوجد في الصفحة الأولى، نقوم بعمل فحص إضافي سريع إذا لم يكن موجوداً
+    if not is_member:
+        # محاولة البحث في صفحات إضافية إذا كانت موجودة
+        check_page = 2
+        while not is_member and check_page <= 5: # فحص حتى الصفحة 5 لتجنب البطء
+            extra_data = get_custom_league_standings(page=check_page)
+            if extra_data and "standings" in extra_data:
+                extra_results = extra_data["standings"].get("results", [])
+                if not extra_results:
+                    break
+                for player in extra_results:
+                    if str(player.get("entry")) == str(manager_id):
+                        is_member = True
+                        player_league_info = player
+                        break
+                if not extra_data["standings"].get("has_next"):
+                    break
+                check_page += 1
+            else:
+                break
+
+    # الحالة الأولى: إذا كان غير مشترك في الدوري
+    if not is_member:
+        response = (
+            f"❌ **أنت غير مشترك في دوري البوت الخاص بنا!**\n\n"
+            f"⚠️ يجب عليك الانضمام للدوري أولاً للحصول على كامل المعلومات والمنافسة.\n\n"
+            f"🔗 **رابط الانضمام للدوري:**\n{LEAGUE_JOIN_URL}\n\n"
+            f"🆔 **كود الدوري:** `wmvdke`\n\n"
+            f"بعد الانضمام، اعد الضغط على زر '🏆 دوري البوت' لمشاهدة ترتيبك والإحصائيات."
+        )
+        return response, False, 1
+
+    # الحالة الثانية: المدرب مشترك في الدوري
+    # جلب بيانات الصفحة المطلوبة للعرض (10 لاعبين لكل صفحة)
+    display_data = get_custom_league_standings(page=page)
+    page_results = display_data["standings"].get("results", []) if display_data else []
+    
+    # معرفة إجمالي الصفحات التقريبي
+    total_pages = page if not display_data.get("standings", {}).get("has_next") else page + 1
+
+    # البحث عن أعلى مدرب نقاطاً بالجولة في الصفحة الحالية/الدوري
+    highest_gw_player = None
+    max_gw_points = -1
+    
+    for p in page_results:
+        event_total = safe_int(p.get("event_total", 0))
+        if event_total > max_gw_points:
+            max_gw_points = event_total
+            highest_gw_player = p
+
+    # تنسيق بيانات اللاعب الحالي
+    p_rank = player_league_info.get("rank", 0)
+    p_last_rank = player_league_info.get("last_rank", 0)
+    rank_change = get_league_change_display(p_rank, p_last_rank)
+    
+    response = (
+        f"🏆 **ترتيب دوري البوت**\n"
+        f"📊 **الجولة {gameweek}** | الصفحة {page}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **بياناتك في الدوري:**\n"
+        f"🥇 الترتيب: **#{p_rank}**{rank_change}\n"
+        f"⚽ النقاط الكلية: **{player_league_info.get('total', 0)}**\n"
+        f"🔥 نقاط الجولة: **{player_league_info.get('event_total', 0)}**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+    )
+
+    if highest_gw_player:
+        h_name = sanitize_markdown(safe_str(highest_gw_player.get("player_name")))
+        h_entry = sanitize_markdown(safe_str(highest_gw_player.get("entry_name")))
+        h_pts = highest_gw_player.get("event_total", 0)
+        response += f"🌟 **أعلى مدرب نقاطاً بالجولة:** {h_entry} ({h_name}) - **{h_pts} نقطة**\n"
+        response += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    response += "👥 **قائمة لاعبي الدوري:**\n\n"
+
+    for p in page_results[:10]: # عرض 10 لاعبين
+        rank = p.get("rank", 0)
+        last_rank = p.get("last_rank", 0)
+        change = get_league_change_display(rank, last_rank)
+        
+        player_name = sanitize_markdown(safe_str(p.get("player_name")))
+        entry_name = sanitize_markdown(safe_str(p.get("entry_name")))
+        event_pts = p.get("event_total", 0)
+        total_pts = p.get("total", 0)
+
+        response += (
+            f"**{rank}. {entry_name}** ({player_name}){change}\n"
+            f"    🎯 نقاط الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
+        )
+
+    return response, True, total_pages
+
+def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member):
+    """أزرار التحكم بصفحات دوري البوت"""
+    keyboard = []
+    
+    if is_member:
+        nav_buttons = []
+        if page > 1:
+            nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"botleague_{manager_id}_{gameweek}_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"botleague_{manager_id}_{gameweek}_{page+1}"))
+        keyboard.append(nav_buttons)
+
+    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
+    return InlineKeyboardMarkup(keyboard)
+
 def get_fdr_keyboard(manager_id, gameweek):
     """أزرار الانتقال بين الجولات والعودة للقائمة الرئيسية لصفحة FDR"""
     prev_gw = gameweek - 1 if gameweek > 1 else 37
@@ -944,7 +1090,7 @@ def get_fdr_keyboard(manager_id, gameweek):
     return InlineKeyboardMarkup(keyboard)
 
 def get_buttons(manager_id, gameweek, current_view):
-    """أزرار القائمة الرئيسية - مطابقة لكود fpl_bot"""
+    """أزرار القائمة الرئيسية - معدلة لتشمل زر دوري البوت"""
     next_gw = get_next_gameweek(gameweek)
     prev_gw = get_previous_gameweek(gameweek)
 
@@ -956,20 +1102,29 @@ def get_buttons(manager_id, gameweek, current_view):
          InlineKeyboardButton("💰 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data=f"fdr_{manager_id}_{gameweek}"),
          InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
+        [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"botleague_{manager_id}_{gameweek}_1")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
     return InlineKeyboardMarkup(keyboard)
-
+    
 def get_subscription_button():
+    """إنشاء أزرار الانضمام للقنوات الإجبارية وزر التحقق"""
     keyboard = []
     for channel in CHANNELS:
+        # إزالة علامة @ من معرف القناة لبناء رابط التليجرام
+        channel_username = channel["id"].replace("@", "")
         keyboard.append([
-            InlineKeyboardButton(f"📢 اشترك في {channel['name']}", url=f"https://t.me/{channel['id'].replace('@', '')}")
+            InlineKeyboardButton(
+                f"📢 اشترك في {channel['name']}", 
+                url=f"https://t.me/{channel_username}"
+            )
         ])
+    
     keyboard.append([
-        InlineKeyboardButton("✅ تم الاشتراك - تحقق مرة أخرى", callback_data="check_0")
+        InlineKeyboardButton("✅ تم الاشتراك - تحقق مرة أخرى", callback_data="check_subscription")
     ])
+    
     return InlineKeyboardMarkup(keyboard)
 
 # ============================================================
@@ -1033,12 +1188,12 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         users_list = list(USERS_SET)
         users_preview = ""
         if users_list:
-            preview_count = min(20, len(users_list))
-            users_preview = "\n📋 **أول 20 مستخدم:**\n"
+            preview_count = min(50, len(users_list))
+            users_preview = "\n📋 **أول 50 مستخدم:**\n"
             for i, uid in enumerate(users_list[:preview_count], 1):
                 users_preview += f"{i}. `{uid}`\n"
-            if len(users_list) > 20:
-                users_preview += f"... و {len(users_list) - 20} مستخدم آخر"
+            if len(users_list) > 50:
+                users_preview += f"... و {len(users_list) - 50} مستخدم آخر"
         
         message = f"""
 📊 **إحصائيات المستخدمين**
@@ -1767,7 +1922,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "✓ تفاصيل أداء كل لاعب في الفريق\n"
                 "✓ نقاط القائد والبدلاء\n"
                 "✓ قيمة الفريق والرصيد البنكي 💰\n"
-                "✓ ترتيبك في الدوريات المختلفة\n"
+                "✓ ترتيبك في الدوريات المختلفة ودوري البوت 🏆\n"
                 "✓ تاريخ المواسم السابقة\n"
                 "✓ نتائج المباريات وتفاصيلها ⚽\n"
                 "✓ مواعيد الديدلاين والانتقالات ⏰\n\n"
@@ -1817,7 +1972,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        if parts[0] == "poslist":
+        if parts[0] == "botleague":
+            gameweek = int(parts[2])
+            page = int(parts[3]) if len(parts) > 3 else 1
+
+            await context.bot.edit_message_text(
+                text="🔄 جاري التحقق من الاشتراك وتحميل بيانات دوري البوت...",
+                chat_id=chat_id, message_id=message_id
+            )
+
+            text, is_member, total_pages = format_custom_league_display(manager_id, gameweek, page)
+            reply_markup = get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member)
+
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup,
+                disable_web_page_preview=True
+            )
+            return
+
+        elif parts[0] == "poslist":
             gameweek = int(parts[2])
             await context.bot.edit_message_text(
                 text="🎯 **اختر المركز المطلوب لعرض لاعبيه:**",
@@ -1950,7 +2124,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # --- قسم FDR الجديد الخاص بشرط fdr ---
         elif parts[0] == "fdr":
             gameweek = int(parts[2])
             
@@ -1976,7 +2149,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # --- تعديل التنقل nav ليدعم fdr ---
         elif parts[0] == "nav":
             gameweek = int(parts[2])
             current_text = query.message.text or ""
@@ -2041,7 +2213,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        # --- تعديل شروط العروض لتقبل "fdr" وقواميس النصوص ---
         elif parts[0] in ["detail", "leagues", "deadline", "price", "fdr"]:
             view_type = parts[0]
             gameweek = int(parts[2])
