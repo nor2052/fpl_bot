@@ -944,51 +944,25 @@ def get_custom_league_standings(page=1):
     url = f"{BASE_URL}/leagues-classic/{LEAGUE_ID}/standings/?page_standings={page}"
     return safe_api_request(url, "get_custom_league_standings")
 
+def check_user_in_league(manager_id, league_id):
+    """فحص مباشر ودقيق لمعرفة ما إذا كان المدرب منضماً للدوري المحدد"""
+    url = f"{BASE_URL}/entry/{manager_id}/"
+    data = safe_api_request(url, "check_user_in_league")
+    
+    if data and "leagues" in data and "classic" in data["leagues"]:
+        classic_leagues = data["leagues"]["classic"]
+        for league in classic_leagues:
+            if str(league.get("id")) == str(league_id):
+                return True, league # إرجاع True وبيانات الدوري الخاصة بالمدرب
+    return False, None
+
 def format_custom_league_display(manager_id, gameweek, page=1):
-    """صياغة عرض دوري البوت مع التحقق من اشتراك المدرب"""
-    league_data = get_custom_league_standings(page=1)
+    """صياغة عرض دوري البوت بعد التحقق المباشر من بروفايل المدرب"""
     
-    if not league_data or "standings" not in league_data:
-        return "❌ تعذر جلب بيانات دوري البوت حالياً.", False, 1
+    # 1. التحقق المباشر والدقيق من اشتراك المدرب في الدوري
+    is_member, user_league_data = check_user_in_league(manager_id, LEAGUE_ID)
 
-    results = league_data["standings"].get("results", [])
-    has_next = league_data["standings"].get("has_next", False)
-    
-    # البحث عن المدرب في جميع صفحات الدوري أو الصفحة الحالية
-    # سنتحقق من الصفحة الأولى أولاً، وفي حال وجود صفحات إضافية يتم الفحص عند الحاجة
-    is_member = False
-    player_league_info = None
-
-    # فحص إذا كان المدرب موجود في الدوري (عبر فحص قائمة النتائج)
-    # ملاحظة: لضمان الدقة العالية نجلب الصفحة الأولى، وإذا كان الدوري كبيراً نفحص معرف المدرب
-    for player in results:
-        if str(player.get("entry")) == str(manager_id):
-            is_member = True
-            player_league_info = player
-            break
-
-    # إذا لم يوجد في الصفحة الأولى، نقوم بعمل فحص إضافي سريع إذا لم يكن موجوداً
-    if not is_member:
-        # محاولة البحث في صفحات إضافية إذا كانت موجودة
-        check_page = 2
-        while not is_member and check_page <= 5: # فحص حتى الصفحة 5 لتجنب البطء
-            extra_data = get_custom_league_standings(page=check_page)
-            if extra_data and "standings" in extra_data:
-                extra_results = extra_data["standings"].get("results", [])
-                if not extra_results:
-                    break
-                for player in extra_results:
-                    if str(player.get("entry")) == str(manager_id):
-                        is_member = True
-                        player_league_info = player
-                        break
-                if not extra_data["standings"].get("has_next"):
-                    break
-                check_page += 1
-            else:
-                break
-
-    # الحالة الأولى: إذا كان غير مشترك في الدوري
+    # إذا كان غير مشترك حقاً
     if not is_member:
         response = (
             f"❌ **أنت غير مشترك في دوري البوت الخاص بنا!**\n\n"
@@ -999,15 +973,22 @@ def format_custom_league_display(manager_id, gameweek, page=1):
         )
         return response, False, 1
 
-    # الحالة الثانية: المدرب مشترك في الدوري
-    # جلب بيانات الصفحة المطلوبة للعرض (10 لاعبين لكل صفحة)
-    display_data = get_custom_league_standings(page=page)
-    page_results = display_data["standings"].get("results", []) if display_data else []
+    # 2. إذا كان مشتركاً، نجلب ترتيب الدوري للصفحة المطلوبة
+    league_data = get_custom_league_standings(page=page)
     
-    # معرفة إجمالي الصفحات التقريبي
-    total_pages = page if not display_data.get("standings", {}).get("has_next") else page + 1
+    if not league_data or "standings" not in league_data:
+        return "❌ تعذر جلب بيانات دوري البوت حالياً.", True, 1
 
-    # البحث عن أعلى مدرب نقاطاً بالجولة في الصفحة الحالية/الدوري
+    page_results = league_data["standings"].get("results", [])
+    has_next = league_data["standings"].get("has_next", False)
+    total_pages = page + 1 if has_next else page
+
+    # استخراج بيانات المدرب في الدوري
+    p_rank = user_league_data.get("entry_rank", 0)
+    p_last_rank = user_league_data.get("entry_last_rank", 0)
+    rank_change = get_league_change_display(p_rank, p_last_rank)
+    
+    # البحث عن أعلى مدرب نقاطاً بالجولة في الصفحة الحالية
     highest_gw_player = None
     max_gw_points = -1
     
@@ -1017,19 +998,13 @@ def format_custom_league_display(manager_id, gameweek, page=1):
             max_gw_points = event_total
             highest_gw_player = p
 
-    # تنسيق بيانات اللاعب الحالي
-    p_rank = player_league_info.get("rank", 0)
-    p_last_rank = player_league_info.get("last_rank", 0)
-    rank_change = get_league_change_display(p_rank, p_last_rank)
-    
     response = (
         f"🏆 **ترتيب دوري البوت**\n"
         f"📊 **الجولة {gameweek}** | الصفحة {page}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 **بياناتك في الدوري:**\n"
         f"🥇 الترتيب: **#{p_rank}**{rank_change}\n"
-        f"⚽ النقاط الكلية: **{player_league_info.get('total', 0)}**\n"
-        f"🔥 نقاط الجولة: **{player_league_info.get('event_total', 0)}**\n"
+        f"⚽ النقاط الكلية: **{user_league_data.get('entry_total', 0)}**\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
     )
 
@@ -1037,7 +1012,7 @@ def format_custom_league_display(manager_id, gameweek, page=1):
         h_name = sanitize_markdown(safe_str(highest_gw_player.get("player_name")))
         h_entry = sanitize_markdown(safe_str(highest_gw_player.get("entry_name")))
         h_pts = highest_gw_player.get("event_total", 0)
-        response += f"🌟 **أعلى مدرب نقاطاً بالجولة:** {h_entry} ({h_name}) - **{h_pts} نقطة**\n"
+        response += f"🌟 **أعلى مدرب نقاطاً بالجولة (في هذه الصفحة):** {h_entry} ({h_name}) - **{h_pts} نقطة**\n"
         response += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     response += "👥 **قائمة لاعبي الدوري:**\n\n"
@@ -1058,7 +1033,7 @@ def format_custom_league_display(manager_id, gameweek, page=1):
         )
 
     return response, True, total_pages
-
+    
 def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member):
     """أزرار التحكم بصفحات دوري البوت"""
     keyboard = []
