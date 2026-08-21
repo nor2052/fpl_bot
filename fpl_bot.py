@@ -754,7 +754,7 @@ def format_match_detail_display(fixture_id):
     response = f"**{team_h_info.get('name', 'Team A')} {score_h} - {score_a} {team_a_info.get('name', 'Team B')}**\n\n\n"
 
     def generate_team_section(team_id, team_info, score, is_home):
-        text = f"_**-{team_info.get('emoji_only', '⚪')} {team_info.get('name', 'Team')}  {score}**_\n"
+        text = f"_-{team_info.get('emoji_only', '⚪')} {team_info.get('name', 'Team')}  {score}_\n"
 
         team_players = []
         for p_id, p_data in elements_dict.items():
@@ -825,7 +825,7 @@ def format_match_detail_display(fixture_id):
         all_bps.append((val, p_name))
     all_bps.sort(key=lambda x: x[0], reverse=True)
 
-    response += "\n_**-Top BPS:**_\n"
+    response += "\n**-Top BPS:**\n"
     medals = ["🥇", "🥈", "🥉"]
     for idx, (val, p_name) in enumerate(all_bps[:10]):
         medal = f" {medals[idx]}" if idx < 3 else ""
