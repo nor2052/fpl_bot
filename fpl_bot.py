@@ -439,7 +439,7 @@ def format_match_status(fixture):
             return f"🟢 الوقت بدل الضائع +{added_time}" if added_time > 0 else "🟢 الدقيقة 90+"
         return f"🟢 الدقيقة {minutes}"
     return "⚪ لم تبدأ"
-
+    
 def get_gameweek_stats(gameweek):
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_gw_stats")
     if data and "events" in data:
@@ -751,8 +751,10 @@ def format_match_detail_display(fixture_id):
     bps_h, bps_a = extract_stat_map("bps")
     bonus_h, bonus_a = extract_stat_map("bonus")
 
+    response = f"**{team_h_info.get('name', 'Team A')} {score_h} - {score_a} {team_a_info.get('name', 'Team B')}**\n\n\n"
+
     def generate_team_section(team_id, team_info, score, is_home):
-        text = f"{team_info.get('emoji_only', '⚪')} {team_info.get('name', 'Team')} [ {score} ]\n"
+        text = f"_**-{team_info.get('emoji_only', '⚪')} {team_info.get('name', 'Team')}  {score}**_\n"
 
         team_players = []
         for p_id, p_data in elements_dict.items():
@@ -791,7 +793,7 @@ def format_match_detail_display(fixture_id):
 
         return text + "\n"
 
-    response = generate_team_section(team_h_id, team_h_info, score_h, is_home=True)
+    response += generate_team_section(team_h_id, team_h_info, score_h, is_home=True)
     response += generate_team_section(team_a_id, team_a_info, score_a, is_home=False)
 
     all_xgi = []
@@ -808,7 +810,7 @@ def format_match_detail_display(fixture_id):
 
     all_xgi.sort(key=lambda x: x[2], reverse=True)
 
-    response += "Top xGI:\n"
+    response += "**-Top xGI:**\n"
     for xg, xa, total, p_name in all_xgi[:10]:
         response += f"{xg:.2f} + {xa:.2f}  {p_name}\n"
 
@@ -823,7 +825,7 @@ def format_match_detail_display(fixture_id):
         all_bps.append((val, p_name))
     all_bps.sort(key=lambda x: x[0], reverse=True)
 
-    response += "\nTop BPS:\n"
+    response += "\n_**-Top BPS:**_\n"
     medals = ["🥇", "🥈", "🥉"]
     for idx, (val, p_name) in enumerate(all_bps[:10]):
         medal = f" {medals[idx]}" if idx < 3 else ""
@@ -844,13 +846,13 @@ def format_match_detail_display(fixture_id):
     all_defcon.sort(key=lambda x: x[0], reverse=True)
 
     if all_defcon:
-        response += "\nTop DEFCON:\n"
+        response += "\n**Top DEFCON:**\n"
         for val, p_name in all_defcon[:10]:
             shield = " 🛡️ +2" if val >= 10 else ""
             response += f"{val:2d} {p_name}{shield}\n"
 
     return response
-
+    
 def format_fixtures_menu(gameweek):
     now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
     update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
@@ -878,7 +880,7 @@ def get_fixtures_keyboard(manager_id, gameweek):
             score_h = f.get("team_h_score")
             score_a = f.get("team_a_score")
 
-            finished = f.get("finished", False)
+            finished = f.get("finished", False) or f.get("finished_provisional", False)
             started = f.get("started", False)
 
             if finished:
@@ -897,7 +899,7 @@ def get_fixtures_keyboard(manager_id, gameweek):
 
     keyboard.append([InlineKeyboardButton("🔙 العودة للرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
     return InlineKeyboardMarkup(keyboard)
-
+    
 # ============================================================
 # دوال مواعيد الجولة - مطابقة لكود fpl_bot
 # ============================================================
