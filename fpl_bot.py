@@ -222,7 +222,11 @@ def get_players_dict():
     players = {}
     if data and "elements" in data:
         for player in data["elements"]:
-            players[player["id"]] = f"{player['first_name']} {player['second_name']}"
+            players[player["id"]] = {
+                "web_name": player.get("web_name", f"{player.get('first_name', '')} {player.get('second_name', '')}"),
+                "team": player.get("team"),
+                "element_type": player.get("element_type")
+            }
     logger.info(f"👥 تم تحميل {len(players)} لاعب")
     return players
 
@@ -753,7 +757,8 @@ def format_match_detail_display(fixture_id):
         team_players = []
         for p_id, p_data in elements_dict.items():
             p_stats = p_data.get("stats", {})
-            p_team = players_dict.get(p_id, {}).get("team")
+            p_info = players_dict.get(p_id, {})
+            p_team = p_info.get("team") if isinstance(p_info, dict) else None
 
             if p_team == team_id and p_stats.get("minutes", 0) > 0:
                 team_players.append((p_id, p_stats))
@@ -763,14 +768,20 @@ def format_match_detail_display(fixture_id):
         for p_id, p_stats in team_players:
             mins = p_stats.get("minutes", 0)
             pts = p_stats.get("total_points", 0)
-            p_name = players_dict.get(p_id, {}).get("web_name") or f"Player {p_id}"
+            p_info = players_dict.get(p_id, {})
+            p_name = p_info.get("web_name") if isinstance(p_info, dict) else f"Player {p_id}"
 
             icons = ""
-            if players_dict.get(p_id, {}).get("element_type") == 1: icons += " 🧤"
-            if p_id in (goals_h if is_home else goals_a): icons += " ⚽️"
-            if p_id in (yellow_h if is_home else yellow_a): icons += " 🟨"
-            if p_id in (red_h if is_home else red_a): icons += " 🟥"
-            if p_stats.get("defensive_contributions", 0) >= 10: icons += " 🛡"
+            if isinstance(p_info, dict) and p_info.get("element_type") == 1:
+                icons += " 🧤"
+            if p_id in (goals_h if is_home else goals_a):
+                icons += " ⚽️"
+            if p_id in (yellow_h if is_home else yellow_a):
+                icons += " 🟨"
+            if p_id in (red_h if is_home else red_a):
+                icons += " 🟥"
+            if p_stats.get("defensive_contributions", 0) >= 10:
+                icons += " 🛡"
 
             p_bonus = (bonus_h if is_home else bonus_a).get(p_id, 0)
             if p_bonus > 0:
@@ -785,13 +796,14 @@ def format_match_detail_display(fixture_id):
 
     all_xgi = []
     for p_id, p_data in elements_dict.items():
-        p_team = players_dict.get(p_id, {}).get("team")
+        p_info = players_dict.get(p_id, {})
+        p_team = p_info.get("team") if isinstance(p_info, dict) else None
         if p_team in [team_h_id, team_a_id]:
             p_stats = p_data.get("stats", {})
             xg = float(p_stats.get("expected_goals", 0.0))
             xa = float(p_stats.get("expected_assists", 0.0))
             if xg + xa > 0:
-                p_name = players_dict.get(p_id, {}).get("web_name", "لاعب")
+                p_name = p_info.get("web_name", "لاعب") if isinstance(p_info, dict) else "لاعب"
                 all_xgi.append((xg, xa, xg + xa, p_name))
 
     all_xgi.sort(key=lambda x: x[2], reverse=True)
@@ -802,9 +814,13 @@ def format_match_detail_display(fixture_id):
 
     all_bps = []
     for p_id, val in bps_h.items():
-        all_bps.append((val, players_dict.get(p_id, {}).get("web_name", "لاعب")))
+        p_info = players_dict.get(p_id, {})
+        p_name = p_info.get("web_name", "لاعب") if isinstance(p_info, dict) else "لاعب"
+        all_bps.append((val, p_name))
     for p_id, val in bps_a.items():
-        all_bps.append((val, players_dict.get(p_id, {}).get("web_name", "لاعب")))
+        p_info = players_dict.get(p_id, {})
+        p_name = p_info.get("web_name", "لاعب") if isinstance(p_info, dict) else "لاعب"
+        all_bps.append((val, p_name))
     all_bps.sort(key=lambda x: x[0], reverse=True)
 
     response += "\nTop BPS:\n"
@@ -816,12 +832,13 @@ def format_match_detail_display(fixture_id):
 
     all_defcon = []
     for p_id, p_data in elements_dict.items():
-        p_team = players_dict.get(p_id, {}).get("team")
+        p_info = players_dict.get(p_id, {})
+        p_team = p_info.get("team") if isinstance(p_info, dict) else None
         if p_team in [team_h_id, team_a_id]:
             p_stats = p_data.get("stats", {})
             defcon_val = p_stats.get("defensive_contributions", 0)
             if defcon_val > 0:
-                p_name = players_dict.get(p_id, {}).get("web_name", "لاعب")
+                p_name = p_info.get("web_name", "لاعب") if isinstance(p_info, dict) else "لاعب"
                 all_defcon.append((defcon_val, p_name))
 
     all_defcon.sort(key=lambda x: x[0], reverse=True)
@@ -1005,6 +1022,7 @@ def format_custom_league_display(manager_id, gameweek, page=1):
         f"👤 **بياناتك في الدوري:**\n"
         f"🥇 الترتيب: **#{p_rank}**{rank_change}\n"
         f"⚽ النقاط الكلية: **{user_league_data.get('entry_total', 0)}**\n"
+        f"🔥 نقاط الجولة: **{user_league_data.get('entry_event_total', 0)}**\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
     )
 
@@ -1163,12 +1181,12 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         users_list = list(USERS_SET)
         users_preview = ""
         if users_list:
-            preview_count = min(50, len(users_list))
-            users_preview = "\n📋 **أول 50 مستخدم:**\n"
+            preview_count = min(200, len(users_list))
+            users_preview = "\n📋 **أول 200 مستخدم:**\n"
             for i, uid in enumerate(users_list[:preview_count], 1):
                 users_preview += f"{i}. `{uid}`\n"
-            if len(users_list) > 50:
-                users_preview += f"... و {len(users_list) - 50} مستخدم آخر"
+            if len(users_list) > 200:
+                users_preview += f"... و {len(users_list) - 200} مستخدم آخر"
         
         message = f"""
 📊 **إحصائيات المستخدمين**
