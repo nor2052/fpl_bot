@@ -1037,7 +1037,7 @@ def format_custom_league_display(manager_id, gameweek, page=1):
 
     response += "👥 **قائمة لاعبي الدوري:**\n\n"
 
-    for p in page_results[:10]: # عرض 10 لاعبين
+    for p in page_results: # عرض جميع لاعبي الصفحة الجاري جلبها من API الدوري
         rank = p.get("rank", 0)
         last_rank = p.get("last_rank", 0)
         change = get_league_change_display(rank, last_rank)
@@ -1062,12 +1062,14 @@ def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_membe
         nav_buttons = []
         if page > 1:
             nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"botleague_{manager_id}_{gameweek}_{page-1}"))
-        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"botleague_{manager_id}_{gameweek}_{page+1}"))
-        keyboard.append(nav_buttons)
+        if page < total_pages:
+            nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"botleague_{manager_id}_{gameweek}_{page+1}"))
+        if nav_buttons:
+            keyboard.append(nav_buttons)
 
     keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
     return InlineKeyboardMarkup(keyboard)
-
+    
 def get_fdr_keyboard(manager_id, gameweek):
     """أزرار الانتقال بين الجولات والعودة للقائمة الرئيسية لصفحة FDR"""
     prev_gw = gameweek - 1 if gameweek > 1 else 37
