@@ -1795,10 +1795,7 @@ def calculate_dynamic_threshold(player):
 
 
 def calculate_price_target(player):
-    """
-    حساب نسبة اقتراب اللاعب من تغير السعر مع مراعاة
-    تصفير العداد في حال حدث تغير سابق في نفس الجولة.
-    """
+    """حساب نسبة اقتراب اللاعب من تغير السعر مع مراعاة تصفير العداد"""
     transfers_in = safe_int(player.get("transfers_in_event", 0))
     transfers_out = safe_int(player.get("transfers_out_event", 0))
     net_transfers = transfers_in - transfers_out
@@ -1806,8 +1803,6 @@ def calculate_price_target(player):
     base_threshold = calculate_dynamic_threshold(player)
     cost_change = safe_int(player.get("cost_change_event", 0))
 
-    # إذا تغير السعر بالفعل (ارتفاع أو انخفاض)، يتم خصم قيمة العتبة المستهلكة
-    # لتصفير العداد واحتساب الفائض للتغير القادم (التغير الثاني)
     if cost_change > 0:
         net_transfers -= (base_threshold * cost_change)
     elif cost_change < 0:
@@ -1830,7 +1825,6 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     elements = data["elements"]
 
-    # 1. استخراج اللاعبين الذين تغير سعرهم بالفعل عرضهم في الأسفل
     actual_risen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
     actual_fallen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
 
@@ -1839,7 +1833,6 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     players_list = []
     for p in elements:
-        # لم نعد نستخدم (continue) لإخراج اللاعب، بل نحسب موقعه بعد التصفير
         target_pct = calculate_price_target(p)
 
         p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
@@ -1853,7 +1846,6 @@ def format_price_changes_display(manager_id, info, gameweek):
             "target": target_pct
         })
 
-    # ترتيب التوقعات (يشمل جميع اللاعبين حتى من تغير سعره وتخطى العتبة مجدداً)
     predicted_rise = sorted(players_list, key=lambda x: x["target"], reverse=True)[:5]
     predicted_fall = sorted(players_list, key=lambda x: x["target"])[:5]
 
