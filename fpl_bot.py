@@ -1781,6 +1781,42 @@ def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
 
     return InlineKeyboardMarkup(keyboard)
 
+def calculate_dynamic_threshold(player):
+    """حساب العتبة المطلوبة لتغير السعر بناءً على الملكية والإصابات"""
+    try:
+        ownership_pct = float(player.get("selected_by_percent", "0.1"))
+    except (ValueError, TypeError):
+        ownership_pct = 0.1
+
+    status = player.get("status", "a")
+    factor = 2.0 if status in ['i', 's', 'u'] else 1.0
+
+    return max(5000.0, ownership_pct * 1200.0) * factor
+
+
+def calculate_price_target(player):
+    """
+    حساب نسبة اقتراب اللاعب من تغير السعر مع مراعاة
+    تصفير العداد في حال حدث تغير سابق في نفس الجولة.
+    """
+    transfers_in = safe_int(player.get("transfers_in_event", 0))
+    transfers_out = safe_int(player.get("transfers_out_event", 0))
+    net_transfers = transfers_in - transfers_out
+
+    base_threshold = calculate_dynamic_threshold(player)
+    cost_change = safe_int(player.get("cost_change_event", 0))
+
+    # إذا تغير السعر بالفعل (ارتفاع أو انخفاض)، يتم خصم قيمة العتبة المستهلكة
+    # لتصفير العداد واحتساب الفائض للتغير القادم (التغير الثاني)
+    if cost_change > 0:
+        net_transfers -= (base_threshold * cost_change)
+    elif cost_change < 0:
+        net_transfers += (base_threshold * abs(cost_change))
+
+    target_percentage = (net_transfers / base_threshold) * 100.0
+    return round(target_percentage, 1)
+
+
 def format_price_changes_display(manager_id, info, gameweek):
     name = sanitize_markdown(safe_str(info.get("name")))
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_changes")
@@ -1794,25 +1830,17 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     elements = data["elements"]
 
-    # 1. استخراج اللاعبين الذين تغير سعرهم بالفعل في هذه الجولة
+    # 1. استخراج اللاعبين الذين تغير سعرهم بالفعل عرضهم في الأسفل
     actual_risen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
     actual_fallen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
 
     actual_risen = sorted(actual_risen_all, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
     actual_fallen = sorted(actual_fallen_all, key=lambda x: x.get("cost_change_event", 0))[:5]
 
-    # مجموعة لمعرفة المعرفات (IDs) للاعبين الذين تغير سعرهم وانتهى الأمر
-    changed_player_ids = {p["id"] for p in actual_risen_all + actual_fallen_all}
-
     players_list = []
     for p in elements:
-        # 🟢 حل المشكلة: استبعاد اللاعبين الذين تغير سعرهم بالفعل من قائمة التوقعات
-        if p["id"] in changed_player_ids:
-            continue
-
-        transfers_in = safe_int(p.get("transfers_in_event", 0))
-        transfers_out = safe_int(p.get("transfers_out_event", 0))
-        net_transfers = transfers_in - transfers_out
+        # لم نعد نستخدم (continue) لإخراج اللاعب، بل نحسب موقعه بعد التصفير
+        target_pct = calculate_price_target(p)
 
         p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
         price = safe_int(p.get("now_cost", 0)) / 10.0
@@ -1822,14 +1850,12 @@ def format_price_changes_display(manager_id, info, gameweek):
             "name": p_name,
             "price": price,
             "ownership": ownership,
-            "net_transfers": net_transfers,
-            "transfers_in": transfers_in,
-            "transfers_out": transfers_out
+            "target": target_pct
         })
 
-    # ترتيب التوقعات بناءً على اللاعبين المتبقين فقط
-    predicted_rise = sorted(players_list, key=lambda x: x["net_transfers"], reverse=True)[:5]
-    predicted_fall = sorted(players_list, key=lambda x: x["net_transfers"])[:5]
+    # ترتيب التوقعات (يشمل جميع اللاعبين حتى من تغير سعره وتخطى العتبة مجدداً)
+    predicted_rise = sorted(players_list, key=lambda x: x["target"], reverse=True)[:5]
+    predicted_fall = sorted(players_list, key=lambda x: x["target"])[:5]
 
     response = (
         f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
@@ -1841,19 +1867,19 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     response += "🚀 **أكثر 5 لاعبين متوقع ارتفاعهم:**\n"
     for idx, p in enumerate(predicted_rise, 1):
-        prediction_pct = min(100.0, max(0.0, (p["net_transfers"] / 50000.0) * 100))
+        display_pct = min(100.0, max(0.0, p["target"]))
         response += (
             f"{idx}. **{p['name']}**\n"
-            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 نسبة التوقع: {prediction_pct:.1f}%\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 نسبة التوقع: {display_pct:.1f}%\n"
         )
     response += "\n"
 
     response += "🔻 **أكثر 5 لاعبين متوقع انخفاضهم:**\n"
     for idx, p in enumerate(predicted_fall, 1):
-        prediction_pct = min(100.0, max(0.0, (abs(p["net_transfers"]) / 50000.0) * 100))
+        display_pct = min(100.0, max(0.0, abs(p["target"])))
         response += (
             f"{idx}. **{p['name']}**\n"
-            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 نسبة التوقع: {prediction_pct:.1f}%\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 نسبة التوقع: {display_pct:.1f}%\n"
         )
     response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
 
