@@ -1794,8 +1794,22 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     elements = data["elements"]
 
+    # 1. استخراج اللاعبين الذين تغير سعرهم بالفعل في هذه الجولة
+    actual_risen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
+    actual_fallen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
+
+    actual_risen = sorted(actual_risen_all, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
+    actual_fallen = sorted(actual_fallen_all, key=lambda x: x.get("cost_change_event", 0))[:5]
+
+    # مجموعة لمعرفة المعرفات (IDs) للاعبين الذين تغير سعرهم وانتهى الأمر
+    changed_player_ids = {p["id"] for p in actual_risen_all + actual_fallen_all}
+
     players_list = []
     for p in elements:
+        # 🟢 حل المشكلة: استبعاد اللاعبين الذين تغير سعرهم بالفعل من قائمة التوقعات
+        if p["id"] in changed_player_ids:
+            continue
+
         transfers_in = safe_int(p.get("transfers_in_event", 0))
         transfers_out = safe_int(p.get("transfers_out_event", 0))
         net_transfers = transfers_in - transfers_out
@@ -1803,26 +1817,19 @@ def format_price_changes_display(manager_id, info, gameweek):
         p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
         price = safe_int(p.get("now_cost", 0)) / 10.0
         ownership = safe_str(p.get("selected_by_percent", "0.0"))
-        cost_change = safe_int(p.get("cost_change_event", 0))
 
         players_list.append({
             "name": p_name,
             "price": price,
             "ownership": ownership,
             "net_transfers": net_transfers,
-            "cost_change": cost_change,
             "transfers_in": transfers_in,
             "transfers_out": transfers_out
         })
 
+    # ترتيب التوقعات بناءً على اللاعبين المتبقين فقط
     predicted_rise = sorted(players_list, key=lambda x: x["net_transfers"], reverse=True)[:5]
     predicted_fall = sorted(players_list, key=lambda x: x["net_transfers"])[:5]
-
-    actual_risen = [p for p in elements if p.get("cost_change_event", 0) > 0]
-    actual_risen = sorted(actual_risen, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
-
-    actual_fallen = [p for p in elements if p.get("cost_change_event", 0) < 0]
-    actual_fallen = sorted(actual_fallen, key=lambda x: x.get("cost_change_event", 0))[:5]
 
     response = (
         f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
@@ -1872,7 +1879,7 @@ def format_price_changes_display(manager_id, info, gameweek):
         response += "لا يوجد انخفاضات في الأسعار مؤخراً\n"
 
     return response
-
+    
 # ============================================================
 # معالج الأزرار (Callback) المعدل
 # ============================================================
