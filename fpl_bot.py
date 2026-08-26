@@ -2299,6 +2299,89 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as edit_error:
             logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
 
+
+# ============================================================
+# قسم تعليمات البوت
+# ============================================================
+
+# ============================================================
+# معالج تعليمات القائمة الرئيسية (Slash Commands)
+# ============================================================
+
+async def cmd_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # 1. التحقق من الاشتراك الإجباري
+    is_subscribed = await check_subscription(context, user_id)
+    if not is_subscribed:
+        await handle_message(update, context)
+        return
+
+    # 2. الحصول على معرف المدرب المحفوظ للمستخدم
+    manager_id = context.user_data.get('current_manager_id')
+    if not manager_id:
+        await update.message.reply_text(
+            "❌ **لم تقم بإدخال معرف المدرب بعد!**\n\nيرجى إرسال **رقم معرف المدرب** الخاص بك أولاً لكي تعمل معك التعليمات.",
+            parse_mode='Markdown'
+        )
+        return
+
+    command = update.message.text.split()[0].replace('/', '').lower()
+    gw = current_gameweek
+    info = get_manager_info(manager_id)
+
+    if not info:
+        await update.message.reply_text("❌ لم يتم العثور على بيانات المدرب.")
+        return
+
+    # 3. توجيه التعليمة للخدمة المطلوبة وإرسال القائمة الرئيسية معها
+    if command == "manager":
+        picks_data = get_manager_picks(manager_id, gw)
+        history = get_manager_history(manager_id)
+        text = format_detailed_display(manager_id, info, gw, picks_data, history)
+        reply_markup = get_buttons(manager_id, gw, "detail")
+
+    elif command == "matches":
+        text = format_fixtures_menu(gw)
+        reply_markup = get_fixtures_keyboard(manager_id, gw)
+
+    elif command == "deadline":
+        text = format_deadline_display(manager_id, info, gw)
+        reply_markup = get_buttons(manager_id, gw, "deadline")
+
+    elif command == "han_bot_league":
+        text, is_member, total_pages = format_custom_league_display(manager_id, gw, 1)
+        reply_markup = get_custom_league_keyboard(manager_id, gw, 1, total_pages, is_member)
+
+    elif command == "players":
+        text = format_players_display(manager_id, info, gw, sort_by="points", page=0)
+        all_players = get_all_players_data(sort_by="points")
+        total_pages = (len(all_players) + 19) // 20
+        reply_markup = get_players_buttons(manager_id, gw, "points", 0, total_pages)
+
+    elif command == "leagues":
+        history = get_manager_history(manager_id)
+        text = format_leagues_display(manager_id, info, gw, history)
+        reply_markup = get_buttons(manager_id, gw, "leagues")
+
+    elif command == "prices":
+        text = format_price_changes_display(manager_id, info, gw)
+        reply_markup = get_buttons(manager_id, gw, "price")
+
+    elif command == "fdr":
+        text = format_fdr_display(manager_id, info, gw)
+        reply_markup = get_fdr_keyboard(manager_id, gw)
+
+    else:
+        return
+
+    await update.message.reply_text(
+        text=text,
+        parse_mode='Markdown',
+        reply_markup=reply_markup,
+        disable_web_page_preview=True
+    )
+
 # ============================================================
 # تشغيل البوت
 # ============================================================
@@ -2309,6 +2392,14 @@ current_gameweek = get_current_gameweek()
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
+    # تسجيل تعليمات الأزرار
+    menu_commands = [
+        "manager", "matches", "deadline", "han_bot_league",
+        "players", "leagues", "prices", "fdr"
+    ]
+    application.add_handler(CommandHandler(menu_commands, cmd_button_handler))
+
+    # بقية الهاندلرات الأساسية
     application.add_handler(CommandHandler("start", handle_message))
     application.add_handler(CommandHandler("help", handle_message))
     application.add_handler(CommandHandler("admin", handle_admin_command))
@@ -2324,6 +2415,8 @@ def main():
     )
     
     application.add_handler(CallbackQueryHandler(handle_callback))
+
+
 
     print("=" * 50)
     print("🤖 البوت يعمل الآن (نسخة معدلة - عرض واحد فقط + مواعيد الجولة)")
