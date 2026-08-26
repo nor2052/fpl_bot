@@ -1794,22 +1794,12 @@ def calculate_dynamic_threshold(player):
     return max(5000.0, ownership_pct * 1200.0) * factor
 
 
-def calculate_price_target(player):
-    """حساب نسبة اقتراب اللاعب من تغير السعر مع مراعاة تصفير العداد"""
+def calculate_price_transfers(player):
+    """حساب صافي الشراء والبيع المباشر للاعب خلال الجولة"""
     transfers_in = safe_int(player.get("transfers_in_event", 0))
     transfers_out = safe_int(player.get("transfers_out_event", 0))
     net_transfers = transfers_in - transfers_out
-
-    base_threshold = calculate_dynamic_threshold(player)
-    cost_change = safe_int(player.get("cost_change_event", 0))
-
-    if cost_change > 0:
-        net_transfers -= (base_threshold * cost_change)
-    elif cost_change < 0:
-        net_transfers += (base_threshold * abs(cost_change))
-
-    target_percentage = (net_transfers / base_threshold) * 100.0
-    return round(target_percentage, 1)
+    return net_transfers
 
 
 def format_price_changes_display(manager_id, info, gameweek):
@@ -1825,16 +1815,17 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     elements = data["elements"]
 
+    # جلب التغيرات الفعلية للأيام الأخيرة
     actual_risen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
     actual_fallen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
 
     actual_risen = sorted(actual_risen_all, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
     actual_fallen = sorted(actual_fallen_all, key=lambda x: x.get("cost_change_event", 0))[:5]
 
+    # تجهيز قائمة التوقعات بناءً على صافي حركة الانتقالات
     players_list = []
     for p in elements:
-        target_pct = calculate_price_target(p)
-
+        net_transfers = calculate_price_transfers(p)
         p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
         price = safe_int(p.get("now_cost", 0)) / 10.0
         ownership = safe_str(p.get("selected_by_percent", "0.0"))
@@ -1843,11 +1834,13 @@ def format_price_changes_display(manager_id, info, gameweek):
             "name": p_name,
             "price": price,
             "ownership": ownership,
-            "target": target_pct
+            "net_transfers": net_transfers
         })
 
-    predicted_rise = sorted(players_list, key=lambda x: x["target"], reverse=True)[:5]
-    predicted_fall = sorted(players_list, key=lambda x: x["target"])[:5]
+    # أكثر 5 لاعبين شراءً (متوقع ارتفاعهم)
+    predicted_rise = sorted(players_list, key=lambda x: x["net_transfers"], reverse=True)[:5]
+    # أكثر 5 لاعبين بيعاً (متوقع انخفاضهم)
+    predicted_fall = sorted(players_list, key=lambda x: x["net_transfers"])[:5]
 
     response = (
         f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
@@ -1859,19 +1852,19 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     response += "🚀 **أكثر 5 لاعبين متوقع ارتفاعهم:**\n"
     for idx, p in enumerate(predicted_rise, 1):
-        display_pct = min(100.0, max(0.0, p["target"]))
+        net_buy = max(0, p['net_transfers'])
         response += (
             f"{idx}. **{p['name']}**\n"
-            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 نسبة التوقع: {display_pct:.1f}%\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 صافي الشراء: {net_buy}\n"
         )
     response += "\n"
 
     response += "🔻 **أكثر 5 لاعبين متوقع انخفاضهم:**\n"
     for idx, p in enumerate(predicted_fall, 1):
-        display_pct = min(100.0, max(0.0, abs(p["target"])))
+        net_sell = abs(min(0, p['net_transfers']))
         response += (
             f"{idx}. **{p['name']}**\n"
-            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 نسبة التوقع: {display_pct:.1f}%\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 صافي البيع: {net_sell}\n"
         )
     response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
 
@@ -1895,6 +1888,10 @@ def format_price_changes_display(manager_id, info, gameweek):
             response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
     else:
         response += "لا يوجد انخفاضات في الأسعار مؤخراً\n"
+
+    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
+    response += "صافي الشراء = عدد عمليات الشراء - عدد عمليات البيع\n"
+    response += "صافي البيع = عدد عمليات البيع - عدد عمليات الشراء"
 
     return response
     
