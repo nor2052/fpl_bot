@@ -1782,7 +1782,7 @@ def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
     return InlineKeyboardMarkup(keyboard)
 
 
-def calculate_net_transfers(player):
+ '''def calculate_net_transfers(player):
     """
     حساب صافي الشراء والبيع للاعب مع تصفير العداد فور تغير السعر.
     إذا ارتفع السعر (cost_change_event > 0) أو انخفض (cost_change_event < 0)،
@@ -1900,7 +1900,143 @@ def format_price_changes_display(manager_id, info, gameweek):
     response += "صافي الشراء = عدد عمليات الشراء - عدد عمليات البيع (منذ آخر ارتفاع بالسعر)\n"
     response += "صافي البيع = عدد عمليات البيع - عدد عمليات الشراء (منذ آخر انخفاض بالسعر)"
 
+    return response'''
+
+def calculate_advanced_price_target(player):
+    """
+    خوارزمية محسنة لتوقع تغير السعر تجاكي مواقع LiveFPL & FPLStatistics
+    """
+    # 1. جلب البيانات الأساسية
+    transfers_in = safe_int(player.get("transfers_in_event", 0))
+    transfers_out = safe_int(player.get("transfers_out_event", 0))
+    net_transfers = transfers_in - transfers_out
+    
+    # 2. التحقق من حالات تجميد السعر (Price Lock)
+    # الحالات: i = injured, s = suspended, u = unavailable, a = available
+    status = player.get("status", "a")
+    chance_of_playing = player.get("chance_of_playing_next_round")
+    
+    # إذا كان اللاعب في فترة قفل السعر (مُصاب وعاد للتو)
+    if status == 'a' and chance_of_playing == 100 and player.get("cost_change_event") != 0:
+        # السعر مقفل غالباً
+        return 0.0
+
+    # 3. حساب نسبة الملكية الكلية
+    try:
+        ownership_pct = float(player.get("selected_by_percent", "0.1"))
+    except (ValueError, TypeError):
+        ownership_pct = 0.1
+
+    # 4. حساب العتبة الديناميكية (Dynamic Threshold Formula)
+    # العتبة تزداد لوغاريتمياً مع الملكية مع حد أدنى ثابت (نحو 4000-5000 انتقال)
+    base_threshold = max(4500.0, (ownership_pct ** 0.85) * 1500.0)
+    
+    # 5. مضاعفة العتبة في حالة الإصابات أو الإيقاف (Flagged Players)
+    # اللاعب المصاب يحتاج حوالي ضعف الانتقالات لينخفض أو يرتفع سعره
+    if status in ['i', 's', 'u'] or (chance_of_playing is not None and chance_of_playing < 100):
+        base_threshold *= 2.0
+
+    # 6. خصم نسبة تقريبية لانتقالات الكروت (Wildcard / Free Hit Filter)
+    # عادة 5% إلى 10% من الانتقالات اليومية تكون عبر الكروت ولا تُحسب في التغير
+    effective_net_transfers = net_transfers * 0.92
+
+    # 7. حساب النسبة المئوية للتوقع (-100% تعني انخفاض، +100% تعني ارتفاع)
+    target_percentage = (effective_net_transfers / base_threshold) * 100.0
+
+    # 8. تعديل النسبة إذا كان اللاعب قد ارتفع/انخفض بالفعل في نفس الجولة
+    cost_change_event = safe_int(player.get("cost_change_event", 0))
+    if cost_change_event != 0:
+        target_percentage -= (cost_change_event * 100.0)
+
+    return round(target_percentage, 1)
+
+
+def format_price_changes_display(manager_id, info, gameweek):
+    name = sanitize_markdown(safe_str(info.get("name")))
+    data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_changes")
+
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date = now_mecca.strftime("%d/%m/%Y")
+
+    if not data or "elements" not in data:
+        return "❌ حدث خطأ أثناء جلب بيانات الأسعار."
+
+    elements = data["elements"]
+
+    actual_risen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
+    actual_fallen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
+
+    actual_risen = sorted(actual_risen_all, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
+    actual_fallen = sorted(actual_fallen_all, key=lambda x: x.get("cost_change_event", 0))[:5]
+
+    players_list = []
+    for p in elements:
+        target_pct = calculate_advanced_price_target(p)
+
+        p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+        price = safe_int(p.get("now_cost", 0)) / 10.0
+        ownership = safe_str(p.get("selected_by_percent", "0.0"))
+
+        players_list.append({
+            "name": p_name,
+            "price": price,
+            "ownership": ownership,
+            "target": target_pct
+        })
+
+    predicted_rise = sorted(players_list, key=lambda x: x["target"], reverse=True)[:5]
+    predicted_fall = sorted(players_list, key=lambda x: x["target"])[:5]
+
+    response = (
+        f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
+        f"👤 {name}\n"
+        f"📊 **الجولة {gameweek}**\n"
+        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+
+    response += "🚀 **أكثر 5 لاعبين متوقع ارتفاعهم:**\n"
+    for idx, p in enumerate(predicted_rise, 1):
+        display_pct = min(100.0, max(0.0, p["target"]))
+        response += (
+            f"{idx}. **{p['name']}**\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 نسبة التوقع: {display_pct:.1f}%\n"
+        )
+    response += "\n"
+
+    response += "🔻 **أكثر 5 لاعبين متوقع انخفاضهم:**\n"
+    for idx, p in enumerate(predicted_fall, 1):
+        display_pct = min(100.0, max(0.0, abs(p["target"])))
+        response += (
+            f"{idx}. **{p['name']}**\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 نسبة التوقع: {display_pct:.1f}%\n"
+        )
+    response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+
+    response += "🟢 **آخر 5 لاعبين ارتفع سعرهم:**\n"
+    if actual_risen:
+        for idx, p in enumerate(actual_risen, 1):
+            p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+            price = safe_int(p.get("now_cost", 0)) / 10.0
+            ownership = safe_str(p.get("selected_by_percent", "0.0"))
+            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
+    else:
+        response += "لا يوجد ارتفاعات في الأسعار مؤخراً\n"
+    response += "\n"
+
+    response += "🔴 **آخر 5 لاعبين انخفض سعرهم:**\n"
+    if actual_fallen:
+        for idx, p in enumerate(actual_fallen, 1):
+            p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
+            price = safe_int(p.get("now_cost", 0)) / 10.0
+            ownership = safe_str(p.get("selected_by_percent", "0.0"))
+            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
+    else:
+        response += "لا يوجد انخفاضات في الأسعار مؤخراً\n"
+
     return response
+
     
 # ============================================================
 # معالج الأزرار (Callback) المعدل
