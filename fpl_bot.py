@@ -1781,53 +1781,27 @@ def get_players_buttons(manager_id, gameweek, sort_by, page, total_pages):
 
     return InlineKeyboardMarkup(keyboard)
 
-def calculate_advanced_price_target(player):
+def calculate_net_transfers(player):
     """
-    خوارزمية محسنة لتوقع تغير السعر تجاكي مواقع LiveFPL & FPLStatistics
+    حساب صافي الشراء والبيع للاعب مع تصفير العداد فور تغير السعر.
+    إذا ارتفع السعر (cost_change_event > 0) أو انخفض (cost_change_event < 0)،
+    يتم تصفير صافي الانتقالات ليعكس الانتقالات منذ آخر تغير للسعر فقط.
     """
-    # 1. جلب البيانات الأساسية
+    cost_change = safe_int(player.get("cost_change_event", 0))
+    
+    # في حال حدث تغير في السعر بالجولة/اليوم الحالي يتم تصفير الصافي
+    if cost_change != 0:
+        return 0, 0, "net_buy"
+
     transfers_in = safe_int(player.get("transfers_in_event", 0))
     transfers_out = safe_int(player.get("transfers_out_event", 0))
-    net_transfers = transfers_in - transfers_out
     
-    # 2. التحقق من حالات تجميد السعر (Price Lock)
-    # الحالات: i = injured, s = suspended, u = unavailable, a = available
-    status = player.get("status", "a")
-    chance_of_playing = player.get("chance_of_playing_next_round")
-    
-    # إذا كان اللاعب في فترة قفل السعر (مُصاب وعاد للتو)
-    if status == 'a' and chance_of_playing == 100 and player.get("cost_change_event") != 0:
-        # السعر مقفل غالباً
-        return 0.0
-
-    # 3. حساب نسبة الملكية الكلية
-    try:
-        ownership_pct = float(player.get("selected_by_percent", "0.1"))
-    except (ValueError, TypeError):
-        ownership_pct = 0.1
-
-    # 4. حساب العتبة الديناميكية (Dynamic Threshold Formula)
-    # العتبة تزداد لوغاريتمياً مع الملكية مع حد أدنى ثابت (نحو 4000-5000 انتقال)
-    base_threshold = max(4500.0, (ownership_pct ** 0.85) * 1500.0)
-    
-    # 5. مضاعفة العتبة في حالة الإصابات أو الإيقاف (Flagged Players)
-    # اللاعب المصاب يحتاج حوالي ضعف الانتقالات لينخفض أو يرتفع سعره
-    if status in ['i', 's', 'u'] or (chance_of_playing is not None and chance_of_playing < 100):
-        base_threshold *= 2.0
-
-    # 6. خصم نسبة تقريبية لانتقالات الكروت (Wildcard / Free Hit Filter)
-    # عادة 5% إلى 10% من الانتقالات اليومية تكون عبر الكروت ولا تُحسب في التغير
-    effective_net_transfers = net_transfers * 0.92
-
-    # 7. حساب النسبة المئوية للتوقع (-100% تعني انخفاض، +100% تعني ارتفاع)
-    target_percentage = (effective_net_transfers / base_threshold) * 100.0
-
-    # 8. تعديل النسبة إذا كان اللاعب قد ارتفع/انخفض بالفعل في نفس الجولة
-    cost_change_event = safe_int(player.get("cost_change_event", 0))
-    if cost_change_event != 0:
-        target_percentage -= (cost_change_event * 100.0)
-
-    return round(target_percentage, 1)
+    if transfers_in >= transfers_out:
+        net_buy = transfers_in - transfers_out
+        return net_buy, transfers_in, "net_buy"
+    else:
+        net_sell = transfers_out - transfers_in
+        return net_sell, transfers_in, "net_sell"
 
 
 def format_price_changes_display(manager_id, info, gameweek):
@@ -1843,29 +1817,38 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     elements = data["elements"]
 
+    # اللاعبين الذين تغير سعرهم فعلياً مؤخراً
     actual_risen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
     actual_fallen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
 
-    actual_risen = sorted(actual_risen_all, key=lambda x: x.get("cost_change_event", 0), reverse=True)[:5]
-    actual_fallen = sorted(actual_fallen_all, key=lambda x: x.get("cost_change_event", 0))[:5]
+    actual_risen = sorted(actual_risen_all, key=lambda x: safe_int(x.get("transfers_in_event", 0)), reverse=True)[:5]
+    actual_fallen = sorted(actual_fallen_all, key=lambda x: safe_int(x.get("transfers_out_event", 0)), reverse=True)[:5]
 
-    players_list = []
+    predicted_rise_list = []
+    predicted_fall_list = []
+
     for p in elements:
-        target_pct = calculate_advanced_price_target(p)
-
+        net_val, raw_in, net_type = calculate_net_transfers(p)
         p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
         price = safe_int(p.get("now_cost", 0)) / 10.0
         ownership = safe_str(p.get("selected_by_percent", "0.0"))
 
-        players_list.append({
+        item = {
             "name": p_name,
             "price": price,
             "ownership": ownership,
-            "target": target_pct
-        })
+            "net_val": net_val,
+            "raw_in": raw_in
+        }
 
-    predicted_rise = sorted(players_list, key=lambda x: x["target"], reverse=True)[:5]
-    predicted_fall = sorted(players_list, key=lambda x: x["target"])[:5]
+        if net_type == "net_buy":
+            predicted_rise_list.append(item)
+        else:
+            predicted_fall_list.append(item)
+
+    # الترتيب حسب أعلى صافي شراء وأعلى صافي بيع
+    predicted_rise = sorted(predicted_rise_list, key=lambda x: (x["net_val"], x["raw_in"]), reverse=True)[:5]
+    predicted_fall = sorted(predicted_fall_list, key=lambda x: (x["net_val"], x["raw_in"]), reverse=True)[:5]
 
     response = (
         f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
@@ -1877,19 +1860,17 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     response += "🚀 **أكثر 5 لاعبين متوقع ارتفاعهم:**\n"
     for idx, p in enumerate(predicted_rise, 1):
-        display_pct = min(100.0, max(0.0, p["target"]))
         response += (
             f"{idx}. **{p['name']}**\n"
-            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 نسبة التوقع: {display_pct:.1f}%\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📈 صافي الشراء: {p['net_val']}\n"
         )
     response += "\n"
 
     response += "🔻 **أكثر 5 لاعبين متوقع انخفاضهم:**\n"
     for idx, p in enumerate(predicted_fall, 1):
-        display_pct = min(100.0, max(0.0, abs(p["target"])))
         response += (
             f"{idx}. **{p['name']}**\n"
-            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 نسبة التوقع: {display_pct:.1f}%\n"
+            f"   💰 السعر: £{p['price']:.1f}m | 📊 الملكية: {p['ownership']}% | 📉 صافي البيع: {p['net_val']}\n"
         )
     response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
 
@@ -1914,8 +1895,11 @@ def format_price_changes_display(manager_id, info, gameweek):
     else:
         response += "لا يوجد انخفاضات في الأسعار مؤخراً\n"
 
-    return response
+    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
+    response += "صافي الشراء = عدد عمليات الشراء - عدد عمليات البيع (منذ آخر ارتفاع بالسعر)\n"
+    response += "صافي البيع = عدد عمليات البيع - عدد عمليات الشراء (منذ آخر انخفاض بالسعر)"
 
+    return response
     
 # ============================================================
 # معالج الأزرار (Callback) المعدل
