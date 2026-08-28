@@ -1043,12 +1043,13 @@ def format_custom_league_display(manager_id, gameweek, page=1):
             max_gw_points = event_total
             highest_gw_player = p
 
+    # 🔥 التعديل هنا: استخدام \# بدلاً من # لتجنب خطأ Markdown
     response = (
         f"🏆 **ترتيب دوري البوت**\n"
         f"📊 **الجولة {gameweek}** | الصفحة {page}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 **بياناتك في الدوري:**\n"
-        f"🥇 الترتيب: **#{p_rank}**{rank_change}\n"
+        f"🥇 الترتيب: **\\#{p_rank}**{rank_change}\n"
         f"⚽ النقاط الكلية: **{user_league_data.get('entry_total', 0)}**\n"
         f"🔥 نقاط الجولة: **{user_league_data.get('entry_event_total', 0)}**\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1076,12 +1077,14 @@ def format_custom_league_display(manager_id, gameweek, page=1):
         event_pts = p.get("event_total", 0)
         total_pts = p.get("total", 0)
 
+        # 🔥 التعديل هنا: استخدام \# بدلاً من # في عرض الترتيب
         response += (
             f"**{rank}. {entry_name}** ({player_name}){change}\n"
             f" 🎯 الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
         )
 
-    return response, True, total_pages    
+    return response, True, total_pages
+
 def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member):
     """أزرار التحكم بصفحات دوري البوت"""
     keyboard = []
