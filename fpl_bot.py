@@ -1003,10 +1003,10 @@ def check_user_in_league(manager_id, league_id):
     return False, None
 
 def format_custom_league_display(manager_id, gameweek, page=1):
-    """صياغة عرض دوري البوت بعد التحقق المباشر من بروفايل المدرب مع تجنب خطأ MessageTooLong"""
+    """صياغة عرض دوري البوت بعد التحقق المباشر ومعالجة رموز Markdown بدقة"""
     
     # 1. التحقق المباشر والدقيق من اشتراك المدرب في الدوري
-    is_member, user_league_data = check_user_in_league(manager_id, LEAGUE_ID)
+    is_member, user_league_data = check_user_in_league(manager_id, LEAGUE_ID)[cite: 1]
 
     if not is_member:
         response = (
@@ -1015,76 +1015,74 @@ def format_custom_league_display(manager_id, gameweek, page=1):
             f"🔗 **رابط الانضمام للدوري:**\n{LEAGUE_JOIN_URL}\n\n"
             f"🆔 **كود الدوري:** `wmvdke`\n\n"
             f"بعد الانضمام، أعد الضغط على زر '🏆 دوري البوت' لمشاهدة ترتيبك والإحصائيات."
-        )
+        )[cite: 1]
         return response, False, 1
 
-    # 2. جلب الترتيب من API
-    league_data = get_custom_league_standings(page=page)
+    # 2. جلب الترتيب من API[cite: 1]
+    league_data = get_custom_league_standings(page=page)[cite: 1]
     
     if not league_data or "standings" not in league_data:
-        return "❌ تعذر جلب بيانات دوري البوت حالياً.", True, 1
+        return "❌ تعذر جلب بيانات دوري البوت حالياً.", True, 1[cite: 1]
 
-    page_results = league_data["standings"].get("results", [])
-    has_next = league_data["standings"].get("has_next", False)
-    total_pages = page + 1 if has_next else page
+    page_results = league_data["standings"].get("results", [])[cite: 1]
+    has_next = league_data["standings"].get("has_next", False)[cite: 1]
+    total_pages = page + 1 if has_next else page[cite: 1]
 
     # استخراج بيانات المدرب
-    p_rank = user_league_data.get("entry_rank", 0)
-    p_last_rank = user_league_data.get("entry_last_rank", 0)
-    rank_change = get_league_change_display(p_rank, p_last_rank)
+    p_rank = user_league_data.get("entry_rank", 0)[cite: 1]
+    p_last_rank = user_league_data.get("entry_last_rank", 0)[cite: 1]
+    rank_change = get_league_change_display(p_rank, p_last_rank)[cite: 1]
     
-    # أعلى مدرب نقاطاً في هذه الصفحة
+    # أعلى مدرب نقاطاً في هذه الصفحة[cite: 1]
     highest_gw_player = None
     max_gw_points = -1
     
     for p in page_results:
-        event_total = safe_int(p.get("event_total", 0))
+        event_total = safe_int(p.get("event_total", 0))[cite: 1]
         if event_total > max_gw_points:
             max_gw_points = event_total
-            highest_gw_player = p
+            highest_gw_player = p[cite: 1]
 
-    # 🔥 التعديل هنا: استخدام \# بدلاً من # لتجنب خطأ Markdown
     response = (
         f"🏆 **ترتيب دوري البوت**\n"
         f"📊 **الجولة {gameweek}** | الصفحة {page}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 **بياناتك في الدوري:**\n"
-        f"🥇 الترتيب: **\\#{p_rank}**{rank_change}\n"
+        f"🥇 الترتيب: **#{p_rank}**{rank_change}\n"
         f"⚽ النقاط الكلية: **{user_league_data.get('entry_total', 0)}**\n"
         f"🔥 نقاط الجولة: **{user_league_data.get('entry_event_total', 0)}**\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
     )
 
     if highest_gw_player:
-        h_name = sanitize_markdown(safe_str(highest_gw_player.get("player_name")))
-        h_entry = sanitize_markdown(safe_str(highest_gw_player.get("entry_name")))
-        h_pts = highest_gw_player.get("event_total", 0)
-        response += f"🌟 **أعلى مدرب نقاطاً بالجولة (في هذه الصفحة):** {h_entry} ({h_name}) - **{h_pts} نقطة**\n"
+        h_name = sanitize_markdown(safe_str(highest_gw_player.get("player_name")))[cite: 1]
+        h_entry = sanitize_markdown(safe_str(highest_gw_player.get("entry_name")))[cite: 1]
+        h_pts = highest_gw_player.get("event_total", 0)[cite: 1]
+        response += f"🌟 **أعلى مدرب نقاطاً بالجولة (في هذه الصفحة):** {h_entry} - **{h_pts} نقطة**\n"
         response += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     response += "👥 **قائمة لاعبي الدوري:**\n\n"
 
-    # 💡 الحد من عدد العناصر لتفادي تجاوز طول الرسالة (أقصى حد 15 لاعب لكل صفحة)
-    limited_results = page_results[:15]
+    # الحد من عدد العناصر لتفادي تجاوز طول الرسالة[cite: 1]
+    limited_results = page_results[:15][cite: 1]
 
     for p in limited_results:
-        rank = p.get("rank", 0)
-        last_rank = p.get("last_rank", 0)
-        change = get_league_change_display(rank, last_rank)
+        rank = p.get("rank", 0)[cite: 1]
+        last_rank = p.get("last_rank", 0)[cite: 1]
+        change = get_league_change_display(rank, last_rank)[cite: 1]
         
-        player_name = sanitize_markdown(safe_str(p.get("player_name")))
-        entry_name = sanitize_markdown(safe_str(p.get("entry_name")))
-        event_pts = p.get("event_total", 0)
-        total_pts = p.get("total", 0)
+        player_name = sanitize_markdown(safe_str(p.get("player_name")))[cite: 1]
+        entry_name = sanitize_markdown(safe_str(p.get("entry_name")))[cite: 1]
+        event_pts = p.get("event_total", 0)[cite: 1]
+        total_pts = p.get("total", 0)[cite: 1]
 
-        # 🔥 التعديل هنا: استخدام \# بدلاً من # في عرض الترتيب
         response += (
-            f"**{rank}. {entry_name}** ({player_name}){change}\n"
+            f"**{rank}\. {entry_name}** — {player_name} {change}\n"
             f" 🎯 الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
         )
 
     return response, True, total_pages
-
+    
 def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member):
     """أزرار التحكم بصفحات دوري البوت"""
     keyboard = []
@@ -2056,24 +2054,33 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if parts[0] == "botleague":
-            gameweek = int(parts[2])
-            page = int(parts[3]) if len(parts) > 3 else 1
+            gameweek = int(parts[2])[cite: 1]
+            page = int(parts[3]) if len(parts) > 3 else 1[cite: 1]
 
             await context.bot.edit_message_text(
                 text="🔄 جاري التحقق من الاشتراك وتحميل بيانات دوري البوت...",
                 chat_id=chat_id, message_id=message_id
-            )
+            )[cite: 1]
 
-            text, is_member, total_pages = format_custom_league_display(manager_id, gameweek, page)
-            reply_markup = get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member)
+            text, is_member, total_pages = format_custom_league_display(manager_id, gameweek, page)[cite: 1]
+            reply_markup = get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member)[cite: 1]
 
-            await context.bot.edit_message_text(
-                text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=reply_markup,
-                disable_web_page_preview=True
-            )
+            try:
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup,
+                    disable_web_page_preview=True
+                )[cite: 1]
+            except Exception as parse_error:
+                logger.error(f"Markdown Parse Error: {parse_error}")
+                # في حال وجود خطأ في رموز التنسيق، يتم الإرسال بدون parse_mode لتجنب الانهيار
+                clean_text = text.replace("**", "").replace("`", "")
+                await context.bot.edit_message_text(
+                    text=clean_text, chat_id=chat_id, message_id=message_id,
+                    reply_markup=reply_markup, disable_web_page_preview=True
+                )
             return
-
+            
         elif parts[0] == "poslist":
             gameweek = int(parts[2])
             await context.bot.edit_message_text(
