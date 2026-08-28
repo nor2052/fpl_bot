@@ -1804,6 +1804,27 @@ def calculate_net_transfers(player):
         return net_sell, transfers_in, "net_sell"
 
 
+
+def get_time_until_price_change():
+    """حساب الوقت المتبقي لتغير الأسعار القادم بتنسيق أنيق ودقيق"""
+    now_utc = datetime.now(timezone.utc)
+    
+    # موعد التغير اليومي: 00:00 UTC (منتصف الليل)
+    target_time = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    if now_utc >= target_time:
+        target_time += timedelta(days=1)
+        
+    diff = target_time - now_utc
+    hours, remainder = divmod(int(diff.total_seconds()), 3600)
+    minutes, _ = divmod(remainder, 60)
+    
+    # استخدام علامة Unicode LTR (\u200e) لمنع انعكاس اتجاه الأرقام داخل النص العربي
+    hours_str = f"\u200e{hours:02d}\u200e"
+    minutes_str = f"\u200e{minutes:02d}\u200e"
+    
+    return f"⏳ **المتبقي على تحديث الأسعار:** `{hours_str}` ساعة و `{minutes_str}` دقيقة ⏰"
+    
 def format_price_changes_display(manager_id, info, gameweek):
     name = sanitize_markdown(safe_str(info.get("name")))
     data = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_price_changes")
@@ -1817,13 +1838,9 @@ def format_price_changes_display(manager_id, info, gameweek):
 
     elements = data["elements"]
 
-    # اللاعبين الذين تغير سعرهم فعلياً مؤخراً
-    actual_risen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
-    actual_fallen_all = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
-
-    actual_risen = sorted(actual_risen_all, key=lambda x: safe_int(x.get("transfers_in_event", 0)), reverse=True)[:5]
-    actual_fallen = sorted(actual_fallen_all, key=lambda x: safe_int(x.get("transfers_out_event", 0)), reverse=True)[:5]
-
+    # ============================================================
+    # 1. قسم التوقعات
+    # ============================================================
     predicted_rise_list = []
     predicted_fall_list = []
 
@@ -1846,9 +1863,15 @@ def format_price_changes_display(manager_id, info, gameweek):
         else:
             predicted_fall_list.append(item)
 
-    # الترتيب حسب أعلى صافي شراء وأعلى صافي بيع
     predicted_rise = sorted(predicted_rise_list, key=lambda x: (x["net_val"], x["raw_in"]), reverse=True)[:5]
     predicted_fall = sorted(predicted_fall_list, key=lambda x: (x["net_val"], x["raw_in"]), reverse=True)[:5]
+
+    # ============================================================
+    # 2. قسم التغيرات الفعلية للجولة الحالية
+    # ============================================================
+    # cost_change_event يعبر عن التغيرات التراكمية منذ بداية الجولة وتتصفّر مع الجولة الجديدة
+    actual_risen_gw = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
+    actual_fallen_gw = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
 
     response = (
         f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
@@ -1874,30 +1897,34 @@ def format_price_changes_display(manager_id, info, gameweek):
         )
     response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    response += "🟢 **آخر 5 لاعبين ارتفع سعرهم:**\n"
-    if actual_risen:
-        for idx, p in enumerate(actual_risen, 1):
+    # عرض كافة الارتفاعات الحاصلة خلال الجولة الحالية
+    response += f"🟢 **اللاعبون الذين ارتفع سعرهم في الجولة الحالية ({len(actual_risen_gw)}):**\n"
+    if actual_risen_gw:
+        for idx, p in enumerate(actual_risen_gw, 1):
             p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
             price = safe_int(p.get("now_cost", 0)) / 10.0
             ownership = safe_str(p.get("selected_by_percent", "0.0"))
             response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
     else:
-        response += "لا يوجد ارتفاعات في الأسعار مؤخراً\n"
+        response += f"لا يوجد ارتفاعات في الأسعار في الجولة {gameweek}\n"
     response += "\n"
 
-    response += "🔴 **آخر 5 لاعبين انخفض سعرهم:**\n"
-    if actual_fallen:
-        for idx, p in enumerate(actual_fallen, 1):
+    # عرض كافة الانخفاضات الحاصلة خلال الجولة الحالية
+    response += f"🔴 **اللاعبون الذين انخفض سعرهم في الجولة الحالية ({len(actual_fallen_gw)}):**\n"
+    if actual_fallen_gw:
+        for idx, p in enumerate(actual_fallen_gw, 1):
             p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
             price = safe_int(p.get("now_cost", 0)) / 10.0
             ownership = safe_str(p.get("selected_by_percent", "0.0"))
             response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
     else:
-        response += "لا يوجد انخفاضات في الأسعار مؤخراً\n"
+        response += f"لا يوجد انخفاضات في الأسعار في الجولة {gameweek}\n"
 
     response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
     response += "صافي الشراء = عدد عمليات الشراء - عدد عمليات البيع (منذ آخر ارتفاع بالسعر)\n"
     response += "صافي البيع = عدد عمليات البيع - عدد عمليات الشراء (منذ آخر انخفاض بالسعر)"
+    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
+    response += get_time_until_price_change()
 
     return response
     
