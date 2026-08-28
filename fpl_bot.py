@@ -1079,8 +1079,8 @@ def format_custom_league_display(manager_id, gameweek, page=1):
         total_pts = p.get("total", 0)
 
         response += (
-            f"**{rank}\. {entry_name}** {change}\n"
-            f" 🎯 الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
+            f"{rank}\. {entry_name} {change}\n"
+            f" 🎯 الجولة: {event_pts} | الإجمالي: {total_pts}\n\n"
         )
 
     return response, True, total_pages
