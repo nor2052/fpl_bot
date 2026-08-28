@@ -1003,9 +1003,9 @@ def check_user_in_league(manager_id, league_id):
     return False, None
 
 def format_custom_league_display(manager_id, gameweek, page=1):
-    """صياغة عرض دوري البوت بعد التحقق المباشر ومعالجة رموز Markdown بدقة"""
+    """صياغة عرض دوري البوت بعد التحقق المباشر وحساب الصفحات بشكل صحيح"""
     
-    # 1. التحقق المباشر والدقيق من اشتراك المدرب في الدوري
+    # 1. التحقق المباشر من اشتراك المدرب
     is_member, user_league_data = check_user_in_league(manager_id, LEAGUE_ID)
 
     if not is_member:
@@ -1024,9 +1024,15 @@ def format_custom_league_display(manager_id, gameweek, page=1):
     if not league_data or "standings" not in league_data:
         return "❌ تعذر جلب بيانات دوري البوت حالياً.", True, 1
 
-    page_results = league_data["standings"].get("results", [])
-    has_next = league_data["standings"].get("has_next", False)
-    total_pages = page + 1 if has_next else page
+    standings = league_data["standings"]
+    page_results = standings.get("results", [])
+    
+    # جلب إجمالي الصفحات الحقيقي من بيانات API بدلاً من المعادلة البسيطة
+    # إذا لم تتوفر القيمة في الـ API يتم فحص وجود صفحة تالية تلقائياً
+    has_next = standings.get("has_next", False)
+    total_pages = standings.get("pages")
+    if total_pages is None:
+        total_pages = page + 1 if has_next else page
 
     # استخراج بيانات المدرب
     p_rank = user_league_data.get("entry_rank", 0)
@@ -1045,7 +1051,7 @@ def format_custom_league_display(manager_id, gameweek, page=1):
 
     response = (
         f"🏆 **ترتيب دوري البوت**\n"
-        f"📊 **الجولة {gameweek}** | الصفحة {page}\n"
+        f"📊 **الجولة {gameweek}** | الصفحة {page} من {total_pages}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 **بياناتك في الدوري:**\n"
         f"🥇 الترتيب: **#{p_rank}**{rank_change}\n"
@@ -1055,34 +1061,31 @@ def format_custom_league_display(manager_id, gameweek, page=1):
     )
 
     if highest_gw_player:
-        h_name = sanitize_markdown(safe_str(highest_gw_player.get("player_name")))
         h_entry = sanitize_markdown(safe_str(highest_gw_player.get("entry_name")))
         h_pts = highest_gw_player.get("event_total", 0)
-        response += f"🌟 **أعلى مدرب نقاطاً بالجولة (في هذه الصفحة):** {h_entry} - **{h_pts} نقطة**\n"
+        response += f"🌟 **أعلى فريق نقاطاً بالجولة (في هذه الصفحة):** {h_entry} - **{h_pts} نقطة**\n"
         response += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    response += "👥 **قائمة لاعبي الدوري:**\n\n"
+    response += "👥 **قائمة الفرق في الدوري:**\n\n"
 
-    # الحد من عدد العناصر لتفادي تجاوز طول الرسالة
-    limited_results = page_results[:15]
-
-    for p in limited_results:
+    for p in page_results:
         rank = p.get("rank", 0)
         last_rank = p.get("last_rank", 0)
         change = get_league_change_display(rank, last_rank)
         
-        player_name = sanitize_markdown(safe_str(p.get("player_name")))
+        # الاعتماد على اسم الفريق فقط (entry_name) وإلغاء اسم اللاعب الشخصي
         entry_name = sanitize_markdown(safe_str(p.get("entry_name")))
         event_pts = p.get("event_total", 0)
         total_pts = p.get("total", 0)
 
         response += (
-            f"**{rank}\. {entry_name}** — {player_name} {change}\n"
+            f"**{rank}\. {entry_name}** {change}\n"
             f" 🎯 الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
         )
 
     return response, True, total_pages
-    
+
+
 def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member):
     """أزرار التحكم بصفحات دوري البوت"""
     keyboard = []
