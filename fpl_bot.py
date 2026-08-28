@@ -2,7 +2,7 @@ import os
 import logging
 import calendar
 from datetime import datetime, timezone, timedelta
-
+import re
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -60,12 +60,17 @@ def safe_str(value):
     return str(value) if value is not None else "غير معروف"
 
 def sanitize_markdown(text):
+    """
+    دالة شاملة لتنظيف النصوص وهروب جميع الرموز الحساسة في Telegram Markdown / MarkdownV2
+    """
     if not text:
         return "غير معروف"
-    dangerous_chars = ['[', ']', '(', ')', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-    for char in dangerous_chars:
-        text = text.replace(char, f'\\{char}')
-    return text
+    
+    text = str(text)
+    
+    # قائمة بجميع الرموز الحساسة في تلجرام شاملة للنجمات والرموز الخاصة
+    # (*, _, `, [, ], (, ), >, #, +, -, =, |, {, }, ., !)
+    return re.sub(r'([*_`\[\]()~>#+\-=|{}.!])', r'\\\1', text)
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
     for channel in CHANNELS:
@@ -1003,7 +1008,7 @@ def check_user_in_league(manager_id, league_id):
     return False, None
 
 def format_custom_league_display(manager_id, gameweek, page=1):
-    """صياغة عرض دوري البوت بعد التحقق المباشر من بروفايل المدرب مع تجنب خطأ MessageTooLong"""
+    """صياغة عرض دوري البوت مع معالجة أخطاء Markdown وطول الرسالة"""
     
     # 1. التحقق المباشر والدقيق من اشتراك المدرب في الدوري
     is_member, user_league_data = check_user_in_league(manager_id, LEAGUE_ID)
@@ -1058,12 +1063,12 @@ def format_custom_league_display(manager_id, gameweek, page=1):
         h_name = sanitize_markdown(safe_str(highest_gw_player.get("player_name")))
         h_entry = sanitize_markdown(safe_str(highest_gw_player.get("entry_name")))
         h_pts = highest_gw_player.get("event_total", 0)
-        response += f"🌟 **أعلى مدرب نقاطاً بالجولة (في هذه الصفحة):** {h_entry} ({h_name}) - **{h_pts} نقطة**\n"
+        response += f"🌟 **أعلى مدرب نقاطاً بالجولة (في هذه الصفحة):**\n{h_entry} ({h_name}) - **{h_pts} نقطة**\n"
         response += f"━━━━━━━━━━━━━━━━━━━━━\n\n"
 
     response += "👥 **قائمة لاعبي الدوري:**\n\n"
 
-    # 💡 الحد من عدد العناصر لتفادي تجاوز طول الرسالة (أقصى حد 15 لاعب لكل صفحة)
+    # تحديد العرض بـ 15 لاعب لتفادي طول الرسالة
     limited_results = page_results[:15]
 
     for p in limited_results:
@@ -1071,18 +1076,20 @@ def format_custom_league_display(manager_id, gameweek, page=1):
         last_rank = p.get("last_rank", 0)
         change = get_league_change_display(rank, last_rank)
         
+        # تنظيف جميع النصوص من رموز Markdown الحساسة
         player_name = sanitize_markdown(safe_str(p.get("player_name")))
         entry_name = sanitize_markdown(safe_str(p.get("entry_name")))
         event_pts = p.get("event_total", 0)
         total_pts = p.get("total", 0)
 
         response += (
-            f"**{rank}. {entry_name}** ({player_name}){change}\n"
-            f" 🎯 الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
+            f"**{rank}. {entry_name}** ({player_name}) {change}\n"
+            f"🎯 الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
         )
 
-    return response, True, total_pages    
-def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member):
+    return response, True, total_pages
+    
+    def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member):
     """أزرار التحكم بصفحات دوري البوت"""
     keyboard = []
     
