@@ -882,22 +882,49 @@ def get_fixtures_keyboard(manager_id, gameweek):
 
             finished = f.get("finished", False) or f.get("finished_provisional", False)
             started = f.get("started", False)
+            minutes = f.get("minutes", 0)
+            kickoff_time = f.get("kickoff_time")
 
+            # 1. تحديد أيقونة الحالة + الدقيقة بجانب الأيقونة الخضراء
             if finished:
                 status_emoji = "🔴"
             elif started and not finished:
-                status_emoji = "🟢"
+                if minutes >= 90:
+                    added_time = minutes - 90
+                    status_emoji = f"🟢 90+{added_time}'" if added_time > 0 else "🟢 90'+"
+                else:
+                    status_emoji = f"🟢 {minutes}'"
             else:
                 status_emoji = "⏳"
 
+            # 2. استخراج الوقت والتاريخ بدقة بتوقيت مكة (تاريخ الجولة: DD/MM - HH:MM)
+            time_str = "غير محدد"
+            if kickoff_time:
+                try:
+                    if kickoff_time.endswith('Z'):
+                        kickoff_time_clean = kickoff_time.replace('Z', '+00:00')
+                    else:
+                        kickoff_time_clean = kickoff_time
+                    dt_utc = datetime.fromisoformat(kickoff_time_clean)
+                    dt_mecca = dt_utc + timedelta(hours=3)
+                    formatted_time = dt_mecca.strftime("%I:%M %p").lstrip('0').lower()
+                    formatted_date = dt_mecca.strftime("%d/%m")
+                    time_str = f"{formatted_date} - {formatted_time}"
+                except Exception:
+                    time_str = kickoff_time[:16]
+
+            # 3. صياغة النص داخل الزر (مع النتيجة إن وجدت)
             if score_h is not None and score_a is not None:
-                match_label = f"{status_emoji} {team_h} {score_h} - {score_a} {team_a}"
+                match_info = f"{status_emoji} {team_h} {score_h} - {score_a} {team_a}"
             else:
-                match_label = f"{status_emoji} {team_h} VS {team_a}"
+                match_info = f"{status_emoji} {team_h} VS {team_a}"
+
+            # 4. تجميع السطر الأول (المباراة والنتيجة والدقيقة) والسطر الثاني (الوقت والتاريخ)
+            match_label = f"{match_info}\n🕒 {time_str}"
 
             keyboard.append([InlineKeyboardButton(match_label, callback_data=f"match_{manager_id}_{gameweek}_{f_id}")])
 
-    keyboard.append([InlineKeyboardButton("🔙 العودة للرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
+    keyboard.append([InlineKeyboardButton("🔙 العودة للرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
     return InlineKeyboardMarkup(keyboard)
     
 # ============================================================
@@ -976,23 +1003,22 @@ def check_user_in_league(manager_id, league_id):
     return False, None
 
 def format_custom_league_display(manager_id, gameweek, page=1):
-    """صياغة عرض دوري البوت بعد التحقق المباشر من بروفايل المدرب"""
+    """صياغة عرض دوري البوت بعد التحقق المباشر من بروفايل المدرب مع تجنب خطأ MessageTooLong"""
     
     # 1. التحقق المباشر والدقيق من اشتراك المدرب في الدوري
     is_member, user_league_data = check_user_in_league(manager_id, LEAGUE_ID)
 
-    # إذا كان غير مشترك حقاً
     if not is_member:
         response = (
             f"❌ **أنت غير مشترك في دوري البوت الخاص بنا!**\n\n"
             f"⚠️ يجب عليك الانضمام للدوري أولاً للحصول على كامل المعلومات والمنافسة.\n\n"
             f"🔗 **رابط الانضمام للدوري:**\n{LEAGUE_JOIN_URL}\n\n"
             f"🆔 **كود الدوري:** `wmvdke`\n\n"
-            f"بعد الانضمام، اعد الضغط على زر '🏆 دوري البوت' لمشاهدة ترتيبك والإحصائيات."
+            f"بعد الانضمام، أعد الضغط على زر '🏆 دوري البوت' لمشاهدة ترتيبك والإحصائيات."
         )
         return response, False, 1
 
-    # 2. إذا كان مشتركاً، نجلب ترتيب الدوري للصفحة المطلوبة
+    # 2. جلب الترتيب من API
     league_data = get_custom_league_standings(page=page)
     
     if not league_data or "standings" not in league_data:
@@ -1002,12 +1028,12 @@ def format_custom_league_display(manager_id, gameweek, page=1):
     has_next = league_data["standings"].get("has_next", False)
     total_pages = page + 1 if has_next else page
 
-    # استخراج بيانات المدرب في الدوري
+    # استخراج بيانات المدرب
     p_rank = user_league_data.get("entry_rank", 0)
     p_last_rank = user_league_data.get("entry_last_rank", 0)
     rank_change = get_league_change_display(p_rank, p_last_rank)
     
-    # البحث عن أعلى مدرب نقاطاً بالجولة في الصفحة الحالية
+    # أعلى مدرب نقاطاً في هذه الصفحة
     highest_gw_player = None
     max_gw_points = -1
     
@@ -1037,7 +1063,10 @@ def format_custom_league_display(manager_id, gameweek, page=1):
 
     response += "👥 **قائمة لاعبي الدوري:**\n\n"
 
-    for p in page_results: # عرض جميع لاعبي الصفحة الجاري جلبها من API الدوري
+    # 💡 الحد من عدد العناصر لتفادي تجاوز طول الرسالة (أقصى حد 15 لاعب لكل صفحة)
+    limited_results = page_results[:15]
+
+    for p in limited_results:
         rank = p.get("rank", 0)
         last_rank = p.get("last_rank", 0)
         change = get_league_change_display(rank, last_rank)
@@ -1049,11 +1078,10 @@ def format_custom_league_display(manager_id, gameweek, page=1):
 
         response += (
             f"**{rank}. {entry_name}** ({player_name}){change}\n"
-            f"    🎯 نقاط الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
+            f" 🎯 الجولة: **{event_pts}** | الإجمالي: **{total_pts}**\n\n"
         )
 
-    return response, True, total_pages
-    
+    return response, True, total_pages    
 def get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member):
     """أزرار التحكم بصفحات دوري البوت"""
     keyboard = []
