@@ -1138,7 +1138,7 @@ def get_fixtures_keyboard(manager_id, gameweek):
 
             keyboard.append([InlineKeyboardButton(match_label, callback_data=f"match_{manager_id}_{gameweek}_{f_id}")])
 
-    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}"])
+    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")])
     return InlineKeyboardMarkup(keyboard)
 
     
