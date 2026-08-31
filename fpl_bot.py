@@ -924,8 +924,9 @@ def get_fixtures_keyboard(manager_id, gameweek):
 
             keyboard.append([InlineKeyboardButton(match_label, callback_data=f"match_{manager_id}_{gameweek}_{f_id}")])
 
-    keyboard.append([InlineKeyboardButton("🔙 العودة للرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")])
+    keyboard.append([InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")
     return InlineKeyboardMarkup(keyboard)
+
     
 # ============================================================
 # دوال مواعيد الجولة - مطابقة لكود fpl_bot
@@ -1841,9 +1842,10 @@ def get_time_until_price_change():
     """حساب الوقت المتبقي لتغير الأسعار القادم بتنسيق أنيق ودقيق"""
     now_utc = datetime.now(timezone.utc)
     
-    # موعد التغير اليومي: 00:00 UTC (منتصف الليل)
-    target_time = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    # موعد التغير اليومي: 23:00 UTC (الساعة 2:00 صباحاً بتوقيت مكة)
+    target_time = now_utc.replace(hour=23, minute=0, second=0, microsecond=0)
     
+    # إذا كان الوقت الحالي بعد الساعة 23:00 UTC، نضيف يوم واحد
     if now_utc >= target_time:
         target_time += timedelta(days=1)
         
@@ -1871,7 +1873,29 @@ def format_price_changes_display(manager_id, info, gameweek):
     elements = data["elements"]
 
     # ============================================================
-    # 1. قسم التوقعات
+    # 1. قسم التغيرات الفعلية للجولة الحالية (الأكثر ملكية فقط)
+    # ============================================================
+    # تصفية اللاعبين الذين تغير سعرهم في الجولة الحالية
+    actual_risen_gw = []
+    actual_fallen_gw = []
+    
+    for p in elements:
+        cost_change = safe_int(p.get("cost_change_event", 0))
+        if cost_change > 0:
+            actual_risen_gw.append(p)
+        elif cost_change < 0:
+            actual_fallen_gw.append(p)
+    
+    # ترتيب اللاعبين حسب الملكية (تنازلياً) وأخذ أول 15 فقط
+    actual_risen_gw.sort(key=lambda x: float(x.get("selected_by_percent", 0)), reverse=True)
+    actual_fallen_gw.sort(key=lambda x: float(x.get("selected_by_percent", 0)), reverse=True)
+    
+    # أخذ 15 لاعب فقط من الأكثر ملكية
+    top_risen = actual_risen_gw[:15]
+    top_fallen = actual_fallen_gw[:15]
+
+    # ============================================================
+    # 2. قسم التوقعات (يبقى كما هو مع عرض 5 لاعبين فقط)
     # ============================================================
     predicted_rise_list = []
     predicted_fall_list = []
@@ -1899,12 +1923,8 @@ def format_price_changes_display(manager_id, info, gameweek):
     predicted_fall = sorted(predicted_fall_list, key=lambda x: (x["net_val"], x["raw_in"]), reverse=True)[:5]
 
     # ============================================================
-    # 2. قسم التغيرات الفعلية للجولة الحالية
+    # بناء الرد النهائي
     # ============================================================
-    # cost_change_event يعبر عن التغيرات التراكمية منذ بداية الجولة وتتصفّر مع الجولة الجديدة
-    actual_risen_gw = [p for p in elements if safe_int(p.get("cost_change_event", 0)) > 0]
-    actual_fallen_gw = [p for p in elements if safe_int(p.get("cost_change_event", 0)) < 0]
-
     response = (
         f"📈 **تغيرات وتوقعات أسعار اللاعبين**\n"
         f"👤 {name}\n"
@@ -1929,32 +1949,33 @@ def format_price_changes_display(manager_id, info, gameweek):
         )
     response += "\n━━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    # عرض كافة الارتفاعات الحاصلة خلال الجولة الحالية
-    response += f"🟢 **اللاعبون الذين ارتفع سعرهم في الجولة الحالية ({len(actual_risen_gw)}):**\n"
-    if actual_risen_gw:
-        for idx, p in enumerate(actual_risen_gw, 1):
+    # عرض اللاعبين الذين ارتفع سعرهم في الجولة الحالية (أكثر 15 ملكية)
+    response += f"🟢 **اللاعبون الذين ارتفع سعرهم في الجولة الحالية ({len(top_risen)} من {len(actual_risen_gw)}):**\n"
+    if top_risen:
+        for idx, p in enumerate(top_risen, 1):
             p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
             price = safe_int(p.get("now_cost", 0)) / 10.0
             ownership = safe_str(p.get("selected_by_percent", "0.0"))
-            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
+            response += f"{idx}. **{p_name}** | 💰 £{price:.1f}m | 📊 {ownership}%\n"
+        if len(actual_risen_gw) > 15:
+            response += f"\n... و {len(actual_risen_gw) - 15} لاعب آخر ارتفع سعرهم\n"
     else:
         response += f"لا يوجد ارتفاعات في الأسعار في الجولة {gameweek}\n"
     response += "\n"
 
-    # عرض كافة الانخفاضات الحاصلة خلال الجولة الحالية
-    response += f"🔴 **اللاعبون الذين انخفض سعرهم في الجولة الحالية ({len(actual_fallen_gw)}):**\n"
-    if actual_fallen_gw:
-        for idx, p in enumerate(actual_fallen_gw, 1):
+    # عرض اللاعبين الذين انخفض سعرهم في الجولة الحالية (أكثر 15 ملكية)
+    response += f"🔴 **اللاعبون الذين انخفض سعرهم في الجولة الحالية ({len(top_fallen)} من {len(actual_fallen_gw)}):**\n"
+    if top_fallen:
+        for idx, p in enumerate(top_fallen, 1):
             p_name = sanitize_markdown(f"{p.get('first_name', '')} {p.get('second_name', '')}".strip())
             price = safe_int(p.get("now_cost", 0)) / 10.0
             ownership = safe_str(p.get("selected_by_percent", "0.0"))
-            response += f"{idx}. **{p_name}** | 💰 السعر: £{price:.1f}m | 📊 الملكية: {ownership}%\n"
+            response += f"{idx}. **{p_name}** | 💰 £{price:.1f}m | 📊 {ownership}%\n"
+        if len(actual_fallen_gw) > 15:
+            response += f"\n... و {len(actual_fallen_gw) - 15} لاعب آخر انخفض سعرهم\n"
     else:
         response += f"لا يوجد انخفاضات في الأسعار في الجولة {gameweek}\n"
 
-    response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
-    response += "صافي الشراء = عدد عمليات الشراء - عدد عمليات البيع (منذ آخر ارتفاع بالسعر)\n"
-    response += "صافي البيع = عدد عمليات البيع - عدد عمليات الشراء (منذ آخر انخفاض بالسعر)"
     response += "\n━━━━━━━━━━━━━━━━━━━━━\n"
     response += get_time_until_price_change()
 
