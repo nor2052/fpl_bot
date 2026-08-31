@@ -3,6 +3,9 @@ import logging
 import calendar
 from datetime import datetime, timezone, timedelta
 
+
+from telegram import InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import InlineQueryHandler
 import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -13,6 +16,7 @@ from telegram.ext import (
     ContextTypes,
     MessageHandler,
     filters,
+    InlineQueryHandler,
 )
 
 # ============================================================
@@ -149,6 +153,216 @@ def get_league_change_display(current_rank, previous_rank):
         formatted_diff = format_number_abbreviation(diff)
         return f" 🔻 **({formatted_diff})**"
     return ""
+
+# ============================================================
+# دوال Inline Mode الجديدة
+# ============================================================
+
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    معالج Inline Mode - يعرض معلومات المدرب عند كتابة @bot_id <manager_id>
+    """
+    query = update.inline_query.query.strip()
+    
+    # التحقق من وجود رقم معرف المدرب
+    if not query:
+        # عرض رسالة ترحيب في وضع الإدخال المضمن
+        results = [
+            InlineQueryResultArticle(
+                id="1",
+                title="🔍 أدخل معرف المدرب",
+                description="مثال: 2794801",
+                input_message_content=InputTextMessageContent(
+                    "📝 **أدخل معرف المدرب**\n"
+                    "مثال: `2794801`\n"
+                    "مثال: `@FantasyPremierBot 2794801`"
+                ),
+                thumbnail_url=None
+            )
+        ]
+        await update.inline_query.answer(results, cache_time=0)
+        return
+    
+    # محاولة تحويل النص إلى رقم
+    try:
+        manager_id = int(query.strip())
+    except ValueError:
+        results = [
+            InlineQueryResultArticle(
+                id="error",
+                title="❌ خطأ: المعرف غير صحيح",
+                description="يجب أن يكون رقماً فقط",
+                input_message_content=InputTextMessageContent(
+                    f"❌ **خطأ: المعرف غير صحيح**\n"
+                    f"المدخل: `{query}`\n\n"
+                    f"يجب أن يكون المعرف رقماً فقط.\n"
+                    f"مثال: `2794801`"
+                ),
+                thumbnail_url=None
+            )
+        ]
+        await update.inline_query.answer(results, cache_time=0)
+        return
+    
+    # جلب بيانات المدرب
+    info = get_manager_info(manager_id)
+    if not info:
+        results = [
+            InlineQueryResultArticle(
+                id="error_not_found",
+                title="❌ لم يتم العثور على المدرب",
+                description=f"المعرف {manager_id} غير موجود",
+                input_message_content=InputTextMessageContent(
+                    f"❌ **لم يتم العثور على مدرب**\n"
+                    f"المعرف: `{manager_id}`\n\n"
+                    f"تأكد من صحة المعرف.\n"
+                    f"مثال: `2794801`"
+                ),
+                thumbnail_url=None
+            )
+        ]
+        await update.inline_query.answer(results, cache_time=0)
+        return
+    
+    # جلب البيانات المطلوبة
+    gameweek = get_current_gameweek()
+    picks_data = get_manager_picks(manager_id, gameweek)
+    history = get_manager_history(manager_id)
+    
+    # ============================================================
+    # صياغة الرد المطلوب (المعلومات الأساسية فقط - بدون أزرار)
+    # ============================================================
+    name = sanitize_markdown(safe_str(info.get("name")))
+    total_points = safe_int(info.get("summary_overall_points"))
+    
+    # جلب ترتيب الجولة الحالية
+    target_gw_rank = 0
+    if history and "current" in history:
+        for gw_entry in history["current"]:
+            if gw_entry.get("event") == gameweek:
+                target_gw_rank = safe_int(gw_entry.get("overall_rank"))
+                break
+    
+    rank = target_gw_rank if target_gw_rank > 0 else safe_int(info.get("summary_overall_rank"))
+    rank_str = f"{rank:,}" if rank > 0 else "غير مصنف"
+    
+    # نقاط الجولة ونقاط الانتقالات
+    event_points = 0
+    event_rank = 0
+    transfers_made = 0
+    transfers_cost = 0
+    captain_name = "غير محدد"
+    captain_points = 0
+    
+    if picks_data and "picks" in picks_data:
+        live_points_map = get_live_points(gameweek)
+        active_chip = picks_data.get("active_chip")
+        players_dict_local = get_players_dict()
+        
+        players_to_count = picks_data["picks"] if active_chip == "bboost" else picks_data["picks"][:11]
+        
+        # حساب نقاط الجولة والعثور على القائد
+        for pick in players_to_count:
+            player_id = pick.get("element")
+            player_points = live_points_map.get(player_id, 0)
+            is_captain = pick.get("is_captain", False)
+            
+            if is_captain:
+                # الحصول على اسم القائد
+                player_info = players_dict_local.get(player_id, {})
+                if isinstance(player_info, dict):
+                    captain_name = player_info.get("web_name", f"لاعب {player_id}")
+                else:
+                    captain_name = f"لاعب {player_id}"
+                captain_points = player_points
+            
+            multiplier = 3 if (is_captain and active_chip == "3xc") else (2 if is_captain else 1)
+            event_points += player_points * multiplier
+        
+        if "entry_history" in picks_data:
+            history_data = picks_data["entry_history"]
+            transfers_made = safe_int(history_data.get("event_transfers", 0))
+            transfers_cost = safe_int(history_data.get("event_transfers_cost", 0))
+            event_rank = safe_int(history_data.get("rank", 0))
+    
+    event_points_after_hits = event_points - transfers_cost
+    event_rank_str = f"{event_rank:,}" if event_rank > 0 else "غير مصنف"
+    
+    # تغيير الترتيب
+    rank_change_display = get_rank_change_display(manager_id, gameweek, history)
+    
+    # ============================================================
+    # بناء الرد النهائي (بدون أزرار)
+    # ============================================================
+    response = (
+        f"🎮 **فريق {name}**\n"
+        f"🆔 `{manager_id}` | 📊 **جولة {gameweek}**\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⭐️ نقاط الجولة: **{event_points_after_hits}**\n"
+        f"🏆 النقاط الكلية: **{total_points:,}**\n"
+        f"📈 الترتيب العالمي: **{rank_str}**{rank_change_display}\n"
+        f"📊 ترتيب الجولة: **{event_rank_str}**\n"
+        f"🔄 الانتقالات: **{transfers_made}**" + (f" (-{transfers_cost})" if transfers_cost > 0 else "")
+    )
+    
+    # إضافة معلومات القائد إذا كانت متوفرة
+    if captain_name and captain_points > 0:
+        response += f"\n👑 القائد: **{captain_name}** ({captain_points} نقطة)"
+    
+    # إضافة معلومات البطاقة النشطة إن وجدت
+    active_chip = picks_data.get("active_chip") if picks_data else None
+    chips_icons = {
+        "3xc": "👑 TC",
+        "bboost": "💺 BB",
+        "freehit": "🃏 FH",
+        "wildcard": "🛠 WC"
+    }
+    if active_chip in chips_icons:
+        response += f"\n🎭 البطاقة النشطة: {chips_icons[active_chip]}"
+    
+    # ============================================================
+    # إنشاء نتيجة Inline Query
+    # ============================================================
+    results = [
+        InlineQueryResultArticle(
+            id=str(manager_id),
+            title=f"🎮 {name} | {total_points} نقطة",
+            description=f"الترتيب: #{rank_str} | نقاط الجولة: {event_points_after_hits}",
+            input_message_content=InputTextMessageContent(
+                response,
+                parse_mode='Markdown'
+            ),
+            thumbnail_url=None
+        )
+    ]
+    
+    await update.inline_query.answer(results, cache_time=60)  # تخزين مؤقت لمدة 60 ثانية
+
+
+# ============================================================
+# دالة مساعدة للحصول على نقاط القائد (إضافية)
+# ============================================================
+
+def get_manager_captain_info(manager_id, gameweek):
+    """
+    استخراج معلومات القائد للمدرب في جولة محددة
+    """
+    picks_data = get_manager_picks(manager_id, gameweek)
+    if not picks_data or "picks" not in picks_data:
+        return None, 0
+    
+    live_points_map = get_live_points(gameweek)
+    players_dict_local = get_players_dict()
+    
+    for pick in picks_data["picks"]:
+        if pick.get("is_captain", False):
+            player_id = pick.get("element")
+            player_points = live_points_map.get(player_id, 0)
+            player_info = players_dict_local.get(player_id, {})
+            player_name = player_info.get("web_name", f"لاعب {player_id}") if isinstance(player_info, dict) else f"لاعب {player_id}"
+            return player_name, player_points
+    
+    return None, 0
 
 # ============================================================
 # دوال جلب البيانات من API
@@ -2492,6 +2706,8 @@ def main():
     application.add_handler(CommandHandler("start", handle_message))
     application.add_handler(CommandHandler("help", handle_message))
     application.add_handler(CommandHandler("admin", handle_admin_command))
+    application.add_handler(InlineQueryHandler(inline_query))
+
     
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ad_message),
