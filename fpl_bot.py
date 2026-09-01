@@ -857,6 +857,69 @@ def format_detailed_display(manager_id, info, gameweek, picks_data, history):
     
     return response
 
+def format_leagues_display(manager_id, info, gameweek, history):
+    name = sanitize_markdown(safe_str(info.get("name")))
+
+    leagues = info.get("leagues", {})
+    classic_leagues = leagues.get("classic", [])
+
+    response = (
+        f"🏆 **الدوريات والمواسم**\n"
+        f"🎮 {name}\n"
+        f"🆔 `{manager_id}`\n"
+        f"📊 **الجولة {gameweek}**\n"
+    )
+
+    if classic_leagues:
+        response += "🏅 **المجموعات (الدوريات):**\n\n"
+        for idx, league in enumerate(classic_leagues[:20], 1):
+            raw_name = safe_str(league.get("name", "غير معروف"))
+            clean_name = raw_name.replace('*', '✦').replace('_', '-').replace('`', "'")
+            clean_name = clean_name.replace('[', '(').replace(']', ')')
+            league_name = sanitize_markdown(clean_name)
+
+            league_rank = league.get('entry_rank') or league.get('rank')
+            league_total = league.get('rank_count')
+
+            previous_league_rank = league.get('entry_last_rank') or league.get('last_rank', 0)
+
+            league_change_display = get_league_change_display(league_rank, previous_league_rank) if league_rank else ""
+
+            try:
+                if league_rank is not None and league_total is not None:
+                    response += f"{idx}. {league_name}: {league_rank:,} / {league_total:,}{league_change_display}\n\n"
+                elif league_rank is not None:
+                    response += f"{idx}. {league_name}: الترتيب {league_rank}{league_change_display}\n\n"
+                else:
+                    response += f"{idx}. {league_name}\n\n"
+            except Exception as e:
+                logger.warning(f"⚠️ فشل تنسيق الدوري {idx} للمدرب {manager_id}: {e}")
+                try:
+                    response += f"{idx}. {clean_name}\n\n"
+                except:
+                    response += f"{idx}. (اسم غير قابل للعرض)\n\n"
+    else:
+        response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
+
+    if history and "past" in history and history["past"]:
+        response += "📜 **المواسم السابقة:**\n"
+        for season in history["past"][-5:]:
+            try:
+                raw_season_name = safe_str(season.get("season_name"))
+                clean_season = raw_season_name.replace('*', '✦').replace('_', '-').replace('`', "'")
+                season_name = sanitize_markdown(clean_season)
+                season_points = safe_int(season.get("total_points"))
+                season_rank = safe_int(season.get("rank"))
+                season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
+                response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
+            except Exception as e:
+                logger.warning(f"⚠️ فشل تنسيق موسم للمدرب {manager_id}: {e}")
+                response += f"• {clean_season}: {season_points} نقطة\n"
+    else:
+        response += "📜 **المواسم السابقة:** لا يوجد تاريخ للمواسم السابقة\n\n"
+
+    return response
+
 def format_match_detail_display(fixture_id):
     all_fixtures = get_fixtures()
     fixture = next((f for f in all_fixtures if f.get("id") == fixture_id), None)
@@ -1089,7 +1152,6 @@ def get_fixtures_keyboard(manager_id, gameweek):
 # ============================================================
 
 def format_deadline_display(manager_id, info, gameweek):
-    """تنسيق عرض مواعيد الجولة - متطابق مع الكود الأول"""
     name = sanitize_markdown(safe_str(info.get("name")))
 
     now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
@@ -1137,71 +1199,7 @@ def format_deadline_display(manager_id, info, gameweek):
         f"\n🕌 جميع الأوقات بتوقيت مكة المكرمة (UTC+3)"
     )
     return response
-
-def format_leagues_display(manager_id, info, gameweek, history):
-    """تنسيق عرض الدوريات - متطابق مع الكود الأول"""
-    name = sanitize_markdown(safe_str(info.get("name")))
-
-    leagues = info.get("leagues", {})
-    classic_leagues = leagues.get("classic", [])
-
-    response = (
-        f"🏆 **الدوريات والمواسم**\n"
-        f"🎮 {name}\n"
-        f"🆔 `{manager_id}`\n"
-        f"📊 **الجولة {gameweek}**\n"
-    )
-
-    if classic_leagues:
-        response += "🏅 **المجموعات (الدوريات):**\n\n"
-        for idx, league in enumerate(classic_leagues[:20], 1):
-            raw_name = safe_str(league.get("name", "غير معروف"))
-            clean_name = raw_name.replace('*', '✦').replace('_', '-').replace('`', "'")
-            clean_name = clean_name.replace('[', '(').replace(']', ')')
-            league_name = sanitize_markdown(clean_name)
-
-            league_rank = league.get('entry_rank') or league.get('rank')
-            league_total = league.get('rank_count')
-
-            previous_league_rank = league.get('entry_last_rank') or league.get('last_rank', 0)
-
-            league_change_display = get_league_change_display(league_rank, previous_league_rank) if league_rank else ""
-
-            try:
-                if league_rank is not None and league_total is not None:
-                    response += f"{idx}. {league_name}: {league_rank:,} / {league_total:,}{league_change_display}\n\n"
-                elif league_rank is not None:
-                    response += f"{idx}. {league_name}: الترتيب {league_rank}{league_change_display}\n\n"
-                else:
-                    response += f"{idx}. {league_name}\n\n"
-            except Exception as e:
-                logger.warning(f"⚠️ فشل تنسيق الدوري {idx} للمدرب {manager_id}: {e}")
-                try:
-                    response += f"{idx}. {clean_name}\n\n"
-                except:
-                    response += f"{idx}. (اسم غير قابل للعرض)\n\n"
-    else:
-        response += "🏅 **المجموعات:** لا يشارك في مجموعات حالياً\n\n"
-
-    if history and "past" in history and history["past"]:
-        response += "📜 **المواسم السابقة:**\n"
-        for season in history["past"][-5:]:
-            try:
-                raw_season_name = safe_str(season.get("season_name"))
-                clean_season = raw_season_name.replace('*', '✦').replace('_', '-').replace('`', "'")
-                season_name = sanitize_markdown(clean_season)
-                season_points = safe_int(season.get("total_points"))
-                season_rank = safe_int(season.get("rank"))
-                season_rank_str = f"{season_rank:,}" if season_rank > 0 else "غير مصنف"
-                response += f"• {season_name}: {season_points} نقطة (ترتيب {season_rank_str})\n"
-            except Exception as e:
-                logger.warning(f"⚠️ فشل تنسيق موسم للمدرب {manager_id}: {e}")
-                response += f"• {clean_season}: {season_points} نقطة\n"
-    else:
-        response += "📜 **المواسم السابقة:** لا يوجد تاريخ للمواسم السابقة\n\n"
-
-    return response
-
+    
 # ============================================================
 # دوال الأزرار ومعالجات البوت 
 # ============================================================
@@ -1343,46 +1341,6 @@ def get_buttons(manager_id, gameweek, current_view):
     next_gw = get_next_gameweek(gameweek)
     prev_gw = get_previous_gameweek(gameweek)
 
-    # تحديد الأزرار حسب العرض الحالي (مثل الكود الأول)
-    if current_view in ["detail", "basic", "chips", "finance", "squad"]:
-        basic_btn = "✅ التفاصيل" if current_view == "basic" else "التفاصيل"
-        chips_btn = "✅ البطاقات" if current_view == "chips" else "البطاقات"
-        finance_btn = "✅ المالية" if current_view == "finance" else "المالية"
-        squad_btn = "✅ التشكيلة" if current_view == "squad" else "التشكيلة"
-        
-        keyboard = [
-            [
-                InlineKeyboardButton(basic_btn, callback_data=f"basic_{manager_id}_{gameweek}"),
-                InlineKeyboardButton(chips_btn, callback_data=f"chips_{manager_id}_{gameweek}")
-            ],
-            [
-                InlineKeyboardButton(finance_btn, callback_data=f"finance_{manager_id}_{gameweek}"),
-                InlineKeyboardButton(squad_btn, callback_data=f"squad_{manager_id}_{gameweek}")
-            ],
-            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
-        ]
-        return InlineKeyboardMarkup(keyboard)
-
-    elif current_view in ["leagues", "deadline"]:
-        keyboard = [
-            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")]
-        ]
-        return InlineKeyboardMarkup(keyboard)
-
-    elif current_view == "price":
-        keyboard = [
-            [
-                InlineKeyboardButton("📈 التوقعات", callback_data=f"pricepred_{manager_id}_{gameweek}"),
-                InlineKeyboardButton("🔄 التغييرات", callback_data=f"pricechange_{manager_id}_{gameweek}")
-            ],
-            [
-                InlineKeyboardButton("⏳ موعد التحديث", callback_data=f"pricetime_{manager_id}_{gameweek}"),
-                InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"simple_{manager_id}_{gameweek}")
-            ]
-        ]
-        return InlineKeyboardMarkup(keyboard)
-
-    # القائمة الرئيسية (مثل الكود الثاني في التنسيق)
     keyboard = [
         [InlineKeyboardButton("📊 عرض معلومات المدرب", callback_data=f"detail_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}"),
@@ -1391,6 +1349,7 @@ def get_buttons(manager_id, gameweek, current_view):
          InlineKeyboardButton("💰 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data=f"fdr_{manager_id}_{gameweek}"),
          InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
+        [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"botleague_{manager_id}_{gameweek}_1")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
@@ -2106,6 +2065,22 @@ def get_time_until_price_change():
     
     return f"⏳ **المتبقي على تحديث الأسعار:** `{hours_str}` ساعة و `{minutes_str}` دقيقة ⏰"
     
+def format_price_changes_display(manager_id, info, gameweek):
+    """عرض الصفحة الرئيسية لقائمة الأسعار مع الأزرار"""
+    name = sanitize_markdown(safe_str(info.get("name")))
+    
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date = now_mecca.strftime("%d/%m/%Y")
+
+    response = (
+        f"**قسم الأسعار**\n"
+        f"👤 {name}\n"
+        f"📊 **الجولة {gameweek}**\n"
+    )
+    
+    return response
+
 def get_price_pred_buttons(manager_id, gameweek, current_view=None):
     """أزرار قائمة توقع الأسعار الفرعية"""
     rise_btn_text = "✅ المتوقع ارتفاعهم" if current_view == "rise" else "المتوقع ارتفاعهم"
@@ -2117,10 +2092,11 @@ def get_price_pred_buttons(manager_id, gameweek, current_view=None):
             InlineKeyboardButton(fall_btn_text, callback_data=f"predfall_{manager_id}_{gameweek}")
         ],
         [
-            InlineKeyboardButton("العودة", callback_data=f"price_{manager_id}_{gameweek}")
+            InlineKeyboardButton("🔙 العودة", callback_data=f"price_{manager_id}_{gameweek}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 def get_price_change_buttons(manager_id, gameweek, current_view=None):
     """أزرار قائمة تغييرات الأسعار الفرعية"""
@@ -2133,15 +2109,16 @@ def get_price_change_buttons(manager_id, gameweek, current_view=None):
             InlineKeyboardButton(fall_btn_text, callback_data=f"changefall_{manager_id}_{gameweek}")
         ],
         [
-            InlineKeyboardButton("العودة", callback_data=f"price_{manager_id}_{gameweek}")
+            InlineKeyboardButton("🔙 العودة", callback_data=f"price_{manager_id}_{gameweek}")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
+
 def get_price_time_buttons(manager_id, gameweek):
     """زر العودة من صفحة موعد التحديث"""
     keyboard = [
-        [InlineKeyboardButton("العودة", callback_data=f"price_{manager_id}_{gameweek}")]
+        [InlineKeyboardButton("🔙 العودة", callback_data=f"price_{manager_id}_{gameweek}")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -2194,6 +2171,7 @@ def format_price_pred_rise_display(manager_id, info, gameweek):
 
     return response
 
+
 def format_price_pred_fall_display(manager_id, info, gameweek):
     """عرض اللاعبين المتوقع انخفاضهم"""
     name = sanitize_markdown(safe_str(info.get("name")))
@@ -2243,6 +2221,7 @@ def format_price_pred_fall_display(manager_id, info, gameweek):
 
     return response
 
+
 def format_price_change_rise_display(manager_id, info, gameweek):
     """عرض اللاعبين الذين ارتفع سعرهم"""
     name = sanitize_markdown(safe_str(info.get("name")))
@@ -2287,6 +2266,7 @@ def format_price_change_rise_display(manager_id, info, gameweek):
         response += f"لا يوجد ارتفاعات في الأسعار في الجولة {gameweek}"
 
     return response
+
 
 def format_price_change_fall_display(manager_id, info, gameweek):
     """عرض اللاعبين الذين انخفض سعرهم"""
@@ -2333,6 +2313,7 @@ def format_price_change_fall_display(manager_id, info, gameweek):
 
     return response
 
+
 def format_price_time_display(manager_id, info, gameweek):
     """عرض الوقت المتبقي لتحديث الأسعار"""
     name = sanitize_markdown(safe_str(info.get("name")))
@@ -2349,7 +2330,8 @@ def format_price_time_display(manager_id, info, gameweek):
         f"{get_time_until_price_change()}"
     )
     
-    return response    
+    return response
+    
 # ============================================================
 # معالج الأزرار (Callback) 
 # ============================================================
@@ -2377,7 +2359,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_admin_callback(update, context)
         return
 
-    if parts[0] == "check_subscription":
+    if parts[0] == "check":
         logger.info(f"✅ تم الضغط على زر التحقق للمستخدم {user_id}")
         is_subscribed = await check_subscription(context, user_id)
 
@@ -2397,7 +2379,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "✓ تفاصيل أداء كل لاعب في الفريق\n"
                 "✓ نقاط القائد والبدلاء\n"
                 "✓ قيمة الفريق والرصيد البنكي 💰\n"
-                "✓ ترتيبك في الدوريات المختلفة\n"
+                "✓ ترتيبك في الدوريات المختلفة ودوري البوت 🏆\n"
                 "✓ تاريخ المواسم السابقة\n"
                 "✓ نتائج المباريات وتفاصيلها ⚽\n"
                 "✓ مواعيد الديدلاين والانتقالات ⏰\n\n"
@@ -2448,10 +2430,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         # ============================================================
-        # معالج زر الأسعار الرئيسي
+        # معالج الأسعار - القائمة الرئيسية
         # ============================================================
         if parts[0] == "price":
             gameweek = int(parts[2])
+            
             await context.bot.edit_message_text(
                 text=f"🔄 جاري تحميل بيانات الأسعار للجولة {gameweek}...",
                 chat_id=chat_id, message_id=message_id, reply_markup=None
@@ -2466,7 +2449,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             text = format_price_changes_display(manager_id, info, gameweek)
-            reply_markup = get_buttons(manager_id, gameweek, "price")
+            
+            # إنشاء أزرار الأسعار الفرعية
+            keyboard = [
+                [InlineKeyboardButton("📈 توقع الارتفاع", callback_data=f"pricepred_{manager_id}_{gameweek}"),
+                 InlineKeyboardButton("📉 توقع الانخفاض", callback_data=f"pricechange_{manager_id}_{gameweek}")],
+                [InlineKeyboardButton("⏰ موعد التحديث", callback_data=f"pricetime_{manager_id}_{gameweek}")],
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
@@ -2475,7 +2466,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ============================================================
-        # معالج زر توقع الارتفاع (القائمة الرئيسية للأسعار)
+        # معالج توقع الارتفاع (القائمة الفرعية)
         # ============================================================
         if parts[0] == "pricepred":
             gameweek = int(parts[2])
@@ -2504,7 +2495,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             text = format_price_pred_rise_display(manager_id, info, gameweek)
-            reply_markup = get_price_pred_buttons(manager_id, gameweek)
+            reply_markup = get_price_pred_buttons(manager_id, gameweek, "rise")
             
             try:
                 await context.bot.edit_message_text(
@@ -2534,7 +2525,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             text = format_price_pred_fall_display(manager_id, info, gameweek)
-            reply_markup = get_price_pred_buttons(manager_id, gameweek)
+            reply_markup = get_price_pred_buttons(manager_id, gameweek, "fall")
             
             try:
                 await context.bot.edit_message_text(
@@ -2551,9 +2542,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ============================================================
-        # معالج زر تغييرات الأسعار الفعلية
+        # معالج تغيير الأسعار (القائمة الفرعية)
         # ============================================================
-        elif parts[0] == "pricechange":
+        if parts[0] == "pricechange":
             gameweek = int(parts[2])
             text = "🔄 **تغييرات الأسعار الفعلية**\n\nاختر نوع التغيير لعرضه:"
             reply_markup = get_price_change_buttons(manager_id, gameweek)
@@ -2567,7 +2558,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ============================================================
-        # معالج عرض المرتفعين
+        # معالج عرض المرتفعين فعلياً
         # ============================================================
         elif parts[0] == "changerise":
             gameweek = int(parts[2])
@@ -2580,7 +2571,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             text = format_price_change_rise_display(manager_id, info, gameweek)
-            reply_markup = get_price_change_buttons(manager_id, gameweek)
+            reply_markup = get_price_change_buttons(manager_id, gameweek, "rise")
             
             try:
                 await context.bot.edit_message_text(
@@ -2597,7 +2588,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ============================================================
-        # معالج عرض المنخفضين
+        # معالج عرض المنخفضين فعلياً
         # ============================================================
         elif parts[0] == "changefall":
             gameweek = int(parts[2])
@@ -2610,7 +2601,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             
             text = format_price_change_fall_display(manager_id, info, gameweek)
-            reply_markup = get_price_change_buttons(manager_id, gameweek)
+            reply_markup = get_price_change_buttons(manager_id, gameweek, "fall")
             
             try:
                 await context.bot.edit_message_text(
@@ -2627,7 +2618,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ============================================================
-        # معالج زر موعد التحديث
+        # معالج موعد التحديث
         # ============================================================
         elif parts[0] == "pricetime":
             gameweek = int(parts[2])
@@ -2650,13 +2641,127 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ============================================================
-        # معالج الدوريات (leagues) - بنفس تنسيق الكود الأول
+        # معالج دوري البوت
         # ============================================================
-        elif parts[0] == "leagues":
+        if parts[0] == "botleague":
             gameweek = int(parts[2])
-            
+            page = int(parts[3]) if len(parts) > 3 else 1
+
             await context.bot.edit_message_text(
-                text="🔄 جاري تحميل الدوريات والمواسم...",
+                text="🔄 جاري التحقق من الاشتراك وتحميل بيانات دوري البوت...",
+                chat_id=chat_id, message_id=message_id
+            )
+
+            text, is_member, total_pages = format_custom_league_display(manager_id, gameweek, page)
+            reply_markup = get_custom_league_keyboard(manager_id, gameweek, page, total_pages, is_member)
+
+            try:
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup,
+                    disable_web_page_preview=True
+                )
+            except Exception as parse_error:
+                logger.error(f"Markdown Parse Error: {parse_error}")
+                clean_text = text.replace("**", "").replace("`", "")
+                await context.bot.edit_message_text(
+                    text=clean_text, chat_id=chat_id, message_id=message_id,
+                    reply_markup=reply_markup, disable_web_page_preview=True
+                )
+            return
+
+        # ============================================================
+        # معالج قائمة المراكز
+        # ============================================================
+        elif parts[0] == "poslist":
+            gameweek = int(parts[2])
+            await context.bot.edit_message_text(
+                text="🎯 **اختر المركز المطلوب لعرض لاعبيه:**",
+                chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown',
+                reply_markup=get_positions_keyboard(manager_id, gameweek)
+            )
+            return
+
+        # ============================================================
+        # معالج عرض اللاعبين حسب المركز
+        # ============================================================
+        elif parts[0] == "posview":
+            gameweek = int(parts[2])
+            pos_id = int(parts[3])
+            sort_by = parts[4]
+            page = int(parts[5]) if len(parts) > 5 else 0
+
+            await context.bot.edit_message_text(
+                text="🔄 جاري تحميل لاعبي المركز...",
+                chat_id=chat_id, message_id=message_id
+            )
+
+            all_pos_players = get_all_players_data(sort_by=sort_by, position_id=pos_id)
+            total_pages = max(1, (len(all_pos_players) + 19) // 20)
+
+            text = format_position_players_display(manager_id, gameweek, pos_id, sort_by, page)
+            reply_markup = get_position_players_buttons(manager_id, gameweek, pos_id, sort_by, page, total_pages)
+
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+
+        # ============================================================
+        # معالج قائمة الفرق
+        # ============================================================
+        elif parts[0] == "teamslist":
+            gameweek = int(parts[2])
+            await context.bot.edit_message_text(
+                text="🏢 **اختر الفريق لعرض لاعبيه:**",
+                chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown',
+                reply_markup=get_teams_keyboard(manager_id, gameweek)
+            )
+            return
+
+        # ============================================================
+        # معالج عرض لاعبي فريق معين
+        # ============================================================
+        elif parts[0] == "teamview":
+            gameweek = int(parts[2])
+            team_id = int(parts[3])
+            sort_by = parts[4] if len(parts) > 4 else "points"
+
+            await context.bot.edit_message_text(
+                text="🔄 جاري تحميل لاعبي الفريق...",
+                chat_id=chat_id, message_id=message_id
+            )
+
+            text = format_team_players_display(manager_id, gameweek, team_id, sort_by)
+            reply_markup = get_team_players_buttons(manager_id, gameweek, team_id, sort_by)
+
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+
+        # ============================================================
+        # معالج قائمة جميع اللاعبين
+        # ============================================================
+        elif parts[0] == "players":
+            gameweek = int(parts[2])
+
+            if len(parts) == 5:
+                sort_by = parts[3]
+                page = int(parts[4])
+            elif len(parts) == 4:
+                sort_by = "points"
+                page = int(parts[3])
+            else:
+                sort_by = "points"
+                page = 0
+
+            await context.bot.edit_message_text(
+                text=f"🔄 جاري تحميل قائمة اللاعبين (صفحة {page + 1})...",
                 chat_id=chat_id, message_id=message_id, reply_markup=None
             )
 
@@ -2667,11 +2772,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
                 )
                 return
-            
-            history = get_manager_history(manager_id)
-            text = format_leagues_display(manager_id, info, gameweek, history)
-            reply_markup = get_buttons(manager_id, gameweek, "leagues")
-            
+
+            all_players = get_all_players_data(sort_by=sort_by)
+            total_pages = (len(all_players) + 19) // 20
+
+            text = format_players_display(manager_id, info, gameweek, sort_by=sort_by, page=page)
+            reply_markup = get_players_buttons(manager_id, gameweek, sort_by, page, total_pages)
+
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
                 parse_mode='Markdown', reply_markup=reply_markup
@@ -2679,13 +2786,52 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ============================================================
-        # معالج مواعيد الجولة (deadline) - بنفس تنسيق الكود الأول
+        # معالج قائمة المباريات
         # ============================================================
-        elif parts[0] == "deadline":
+        elif parts[0] == "fixtures":
+            gameweek = int(parts[2])
+            text = format_fixtures_menu(gameweek)
+            reply_markup = get_fixtures_keyboard(manager_id, gameweek)
+
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+
+        # ============================================================
+        # معالج تفاصيل المباراة
+        # ============================================================
+        elif parts[0] == "match":
+            gameweek = int(parts[2])
+            fixture_id = int(parts[3])
+
+            await context.bot.edit_message_text(
+                text="🔄 جاري تحميل تفاصيل المباراة...",
+                chat_id=chat_id, message_id=message_id
+            )
+
+            text = format_match_detail_display(fixture_id)
+
+            match_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 العودة لقائمة المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")]
+            ])
+
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=match_keyboard
+            )
+            return
+
+        # ============================================================
+        # معالج صعوبة المباريات (FDR)
+        # ============================================================
+        elif parts[0] == "fdr":
             gameweek = int(parts[2])
             
             await context.bot.edit_message_text(
-                text=f"🔄 جاري تحميل مواعيد الجولة {gameweek}...",
+                text=f"🔄 جاري تحميل جدول صعوبة المباريات للجولتين {gameweek} و {gameweek+1}...",
                 chat_id=chat_id, message_id=message_id, reply_markup=None
             )
 
@@ -2696,10 +2842,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
                 )
                 return
-            
-            text = format_deadline_display(manager_id, info, gameweek)
-            reply_markup = get_buttons(manager_id, gameweek, "deadline")
-            
+
+            text = format_fdr_display(manager_id, info, gameweek)
+            reply_markup = get_fdr_keyboard(manager_id, gameweek)
+
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
                 parse_mode='Markdown', reply_markup=reply_markup
@@ -2707,13 +2853,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # ============================================================
-        # معالج الزر البسيط (simple) - إضافة للتنقل
+        # معالج التنقل بين الجولات
         # ============================================================
-        elif parts[0] == "simple":
+        elif parts[0] == "nav":
             gameweek = int(parts[2])
-            
+            current_text = query.message.text or ""
+
+            if "الدوريات" in current_text:
+                view_type = "leagues"
+            elif "مباريات الجولة" in current_text or "اختر المباراة" in current_text:
+                view_type = "fixtures"
+            elif "مواعيد" in current_text:
+                view_type = "deadline"
+            elif "تغيرات وتوقعات" in current_text or "قسم الأسعار" in current_text:
+                view_type = "price"
+            elif "صعوبة المباريات" in current_text:
+                view_type = "fdr"
+            else:
+                view_type = "detail"
+
             await context.bot.edit_message_text(
-                text=f"🔄 جاري تحميل البيانات للجولة {gameweek}...",
+                text=f"🔄 جاري تحميل بيانات الجولة {gameweek}...",
                 chat_id=chat_id, message_id=message_id, reply_markup=None
             )
 
@@ -2724,26 +2884,62 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
                 )
                 return
-            
-            picks_data = get_manager_picks(manager_id, gameweek)
-            history = get_manager_history(manager_id)
-            text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
-            reply_markup = get_buttons(manager_id, gameweek, "simple")
-            
+
+            if view_type == "fdr":
+                text = format_fdr_display(manager_id, info, gameweek)
+                reply_markup = get_fdr_keyboard(manager_id, gameweek)
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup
+                )
+                return
+            elif view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+            elif view_type == "price":
+                text = format_price_changes_display(manager_id, info, gameweek)
+                reply_markup = get_buttons(manager_id, gameweek, "price")
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup
+                )
+                return
+            elif view_type == "fixtures":
+                text = format_fixtures_menu(gameweek)
+                reply_markup = get_fixtures_keyboard(manager_id, gameweek)
+                await context.bot.edit_message_text(
+                    text=text, chat_id=chat_id, message_id=message_id,
+                    parse_mode='Markdown', reply_markup=reply_markup
+                )
+                return
+            elif view_type == "leagues":
+                history = get_manager_history(manager_id)
+                text = format_leagues_display(manager_id, info, gameweek, history)
+            else:
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
+
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=reply_markup
+                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
             )
             return
 
         # ============================================================
-        # معالج زر التفاصيل (detail)
+        # المعالجات الرئيسية (detail, leagues, deadline)
         # ============================================================
-        elif parts[0] == "detail":
+        elif parts[0] in ["detail", "leagues", "deadline"]:
+            view_type = parts[0]
             gameweek = int(parts[2])
-            
+
+            loading_texts = {
+                "detail": "عرض معلومات المدرب",
+                "leagues": "الدوريات والمواسم",
+                "deadline": "مواعيد الجولة"
+            }
+
             await context.bot.edit_message_text(
-                text=f"🔄 جاري تحميل تفاصيل الفريق للجولة {gameweek}...",
+                text=f"🔄 جاري تحميل {loading_texts[view_type]} للجولة {gameweek}...",
                 chat_id=chat_id, message_id=message_id, reply_markup=None
             )
 
@@ -2754,24 +2950,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
                 )
                 return
-            
-            picks_data = get_manager_picks(manager_id, gameweek)
-            history = get_manager_history(manager_id)
-            text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
-            reply_markup = get_buttons(manager_id, gameweek, "basic")
-            
+
+            if view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+            elif view_type == "leagues":
+                history = get_manager_history(manager_id)
+                text = format_leagues_display(manager_id, info, gameweek, history)
+            else:
+                picks_data = get_manager_picks(manager_id, gameweek)
+                history = get_manager_history(manager_id)
+                text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
+
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=reply_markup
+                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
             )
             return
-
-        # ============================================================
-        # باقي المعالجات الموجودة (botleague, poslist, posview, teamslist, teamview, players, fixtures, match, fdr, nav)
-        # ============================================================
-        # ... (استمرار الكود الحالي للـ botleague, poslist, posview, teamslist, teamview, players, fixtures, match, fdr, nav)
-        # ...
-
+            
     except Exception as e:
         logger.error(f"خطأ في معالجة callback: {e}")
         try:
