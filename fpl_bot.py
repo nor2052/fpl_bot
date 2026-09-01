@@ -165,52 +165,6 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.inline_query.query.strip()
     user_id = update.effective_user.id
     
-    # ============================================================
-    # التحقق من الاشتراك الإجباري في القنوات
-    # ============================================================
-    try:
-        is_subscribed = await check_subscription(context, user_id)
-    except Exception as e:
-        logger.error(f"خطأ أثناء فحص الاشتراك للمستخدم {user_id} في inline mode: {e}")
-        is_subscribed = False
-    
-    if not is_subscribed:
-        # بناء رسالة الاشتراك مع أزرار القنوات
-        channels_list = "\n".join([f"📢 {ch['id']}" for ch in CHANNELS])
-        
-        # إنشاء أزرار القنوات للانلاين مود
-        subscription_buttons = []
-        for channel in CHANNELS:
-            channel_username = channel["id"].replace("@", "")
-            subscription_buttons.append(f"🔹 اشترك في {channel['name']}: https://t.me/{channel_username}")
-        
-        subscription_text = (
-            f"🔒 **يرجى الاشتراك في جميع القنوات أولاً!**\n\n"
-            f"للحصول على إمكانية استخدام البوت، يرجى الانضمام إلى قنواتنا:\n"
-            f"{channels_list}\n\n"
-            f"✅ **خطوات الاشتراك:**\n"
-            f"1️⃣ انضم إلى جميع القنوات من الروابط أدناه\n"
-            f"2️⃣ عد إلى البوت وأرسل معرف المدرب مرة أخرى\n\n"
-            f"📌 **روابط القنوات:**\n"
-            f"{chr(10).join(subscription_buttons)}\n\n"
-            f"📌 **ملاحظة:** البوت لن يعمل بدون اشتراكك في جميع القنوات."
-        )
-        
-        results = [
-            InlineQueryResultArticle(
-                id="subscription_required",
-                title="🔒 اشتراك إجباري مطلوب",
-                description="يرجى الاشتراك في جميع القنوات أولاً",
-                input_message_content=InputTextMessageContent(
-                    subscription_text,
-                    parse_mode='Markdown'
-                ),
-                thumbnail_url=None
-            )
-        ]
-        await update.inline_query.answer(results, cache_time=0)
-        return
-    
     # التحقق من وجود رقم معرف المدرب
     if not query:
         # عرض رسالة ترحيب في وضع الإدخال المضمن
