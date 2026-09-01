@@ -2452,8 +2452,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # إنشاء أزرار الأسعار الفرعية
             keyboard = [
-                [InlineKeyboardButton("📈 توقع الارتفاع", callback_data=f"pricepred_{manager_id}_{gameweek}"),
-                 InlineKeyboardButton("📉 توقع الانخفاض", callback_data=f"pricechange_{manager_id}_{gameweek}")],
+                [InlineKeyboardButton("📈 توقعات الأسعار", callback_data=f"pricepred_{manager_id}_{gameweek}"),
+                 InlineKeyboardButton("📉 تغيرات الأسعار", callback_data=f"pricechange_{manager_id}_{gameweek}")],
                 [InlineKeyboardButton("⏰ موعد التحديث", callback_data=f"pricetime_{manager_id}_{gameweek}")],
                 [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")]
             ]
