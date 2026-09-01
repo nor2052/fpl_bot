@@ -1676,7 +1676,7 @@ def get_buttons(manager_id, gameweek, current_view):
         [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data=f"fdr_{manager_id}_{gameweek}"),
          InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
         [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"botleague_{manager_id}_{gameweek}_1"),
-         InlineKeyboardButton("👑 إحصائيات القادة", callback_data=f"captain_main_{manager_id}_{gameweek}")],
+        InlineKeyboardButton("👑 إحصائيات القادة", callback_data=f"captain_{manager_id}_{gameweek}_all")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
@@ -2157,40 +2157,29 @@ def get_position_players_buttons(manager_id, gameweek, pos_id, sort_by, page, to
         icon = "✅ " if sort_by == key else ""
         return InlineKeyboardButton(f"{icon}{label}", callback_data=f"posview_{manager_id}_{gameweek}_{pos_id}_{key}_0")
 
-    if pos_id == 4:
+    if pos_id == 4: # مهاجمين
         keyboard.append([btn("النقاط 🏆", "points"), btn("السعر 💰", "price")])
         keyboard.append([btn("الملكية 📊", "selected"), btn("الأهداف ⚽", "goals")])
         keyboard.append([btn("الأسيستات 🅰️", "assists")])
 
-    elif pos_id == 3:
+    elif pos_id == 3: # خط الوسط
         keyboard.append([btn("النقاط 🏆", "points"), btn("السعر 💰", "price")])
         keyboard.append([btn("الملكية 📊", "selected"), btn("الأهداف ⚽", "goals")])
-        keyboard.append([btn("الأسيستات 🅰️", "assists"), btn("مساهمات دفاعية 🧱", "defcontrib")])
+        keyboard.append([btn("الأسيستات 🅰️", "assists"), btn("المساهمات الدفاعية 🛡️", "def_contrib")])
 
-    elif pos_id == 2:
+    elif pos_id == 2: # المدافعين
         keyboard.append([btn("النقاط 🏆", "points"), btn("السعر 💰", "price")])
-        keyboard.append([btn("الملكية 📊", "selected"), btn("الأهداف ⚽", "goals")])
-        keyboard.append([btn("الأسيستات 🅰️", "assists"), btn("كلين شيت 🛡️", "cleansheets")])
-        keyboard.append([btn("مساهمات دفاعية 🧱", "defcontrib")])
+        keyboard.append([btn("الملكية 📊", "selected"), btn("كلين شيت 🧹", "clean_sheets")])
+        keyboard.append([btn("المساهمات الدفاعية 🛡️", "def_contrib")])
 
-    elif pos_id == 1:
+    elif pos_id == 1: # حراس المرمى
         keyboard.append([btn("النقاط 🏆", "points"), btn("السعر 💰", "price")])
-        keyboard.append([btn("الملكية 📊", "selected"), btn("كلين شيت 🛡️", "cleansheets")])
-        keyboard.append([btn("التصديات 🧤", "saves")])
+        keyboard.append([btn("الملكية 📊", "selected"), btn("التصديات 🧤", "saves")])
+        keyboard.append([btn("كلين شيت 🧹", "clean_sheets")])
 
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ السابق", callback_data=f"posview_{manager_id}_{gameweek}_{pos_id}_{sort_by}_{page-1}"))
-    if page < total_pages - 1:
-        nav_buttons.append(InlineKeyboardButton("التالي ➡️", callback_data=f"posview_{manager_id}_{gameweek}_{pos_id}_{sort_by}_{page+1}"))
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-
-    keyboard.append([InlineKeyboardButton("🎯 تغيير المركز", callback_data=f"poslist_{manager_id}_{gameweek}")])
-    keyboard.append([InlineKeyboardButton("🔙 العودة لقائمة اللاعبين العامة", callback_data=f"players_{manager_id}_{gameweek}_points_0")])
-
+    keyboard.append([InlineKeyboardButton("🔙 العودة لاختيار المراكز", callback_data=f"players_{manager_id}_{gameweek}_points_0")])
     return InlineKeyboardMarkup(keyboard)
-
+    
 def format_position_players_display(manager_id, gameweek, pos_id, sort_by="points", page=0):
     pos_names = {1: "🥅 حراس المرمى", 2: "🛡️ خط الدفاع", 3: "⚡ خط الوسط", 4: "🎯 خط الهجوم"}
     pos_name = pos_names.get(pos_id, "اللاعبين")
