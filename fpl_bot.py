@@ -3040,11 +3040,9 @@ async def cmd_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         command = command_part
 
     # 4. التحقق من أن هذا الأمر مدرج في قائمة الأوامر المدعومة
-    # إذا لم يكن الأمر معروفاً، نتجاهل الرسالة (لن نرد عليها)
     supported_commands = ["manager", "matches", "deadline", "han_bot_league", 
                           "players", "leagues", "prices", "fdr"]
     if command not in supported_commands:
-        # في المجموعات، لا نرد على أوامر غير مدعومة أو رسائل عادية
         return
 
     gw = current_gameweek
@@ -3054,7 +3052,7 @@ async def cmd_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ لم يتم العثور على بيانات المدرب.")
         return
 
-    # 5. توجيه التعليمة للخدمة المطلوبة وإرسال القائمة الرئيسية معها
+    # 5. توجيه التعليمة للخدمة المطلوبة وإرسال القائمة المناسبة
     if command == "manager":
         picks_data = get_manager_picks(manager_id, gw)
         history = get_manager_history(manager_id)
@@ -3085,8 +3083,16 @@ async def cmd_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup = get_buttons(manager_id, gw, "leagues")
 
     elif command == "prices":
+        # === التعديل هنا: استخدام أزرار الأسعار بدلاً من الأزرار الرئيسية ===
         text = format_price_changes_display(manager_id, info, gw)
-        reply_markup = get_buttons(manager_id, gw, "price")
+        # إنشاء أزرار الأسعار الفرعية
+        keyboard = [
+            [InlineKeyboardButton("📈 توقعات الأسعار", callback_data=f"pricepred_{manager_id}_{gw}"),
+             InlineKeyboardButton("📉 تغيرات الأسعار", callback_data=f"pricechange_{manager_id}_{gw}")],
+            [InlineKeyboardButton("⏰ موعد التحديث", callback_data=f"pricetime_{manager_id}_{gw}")],
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gw}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
     elif command == "fdr":
         text = format_fdr_display(manager_id, info, gw)
