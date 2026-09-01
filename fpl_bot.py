@@ -1341,14 +1341,22 @@ def get_buttons(manager_id, gameweek, current_view):
     next_gw = get_next_gameweek(gameweek)
     prev_gw = get_previous_gameweek(gameweek)
 
+    # إذا كانت الصفحة الحالية هي الدوريات أو المواعيد، نعرض زر العودة فقط
+    if current_view in ["leagues", "deadline"]:
+        keyboard = [
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    # باقي الأزرار كما هي لبقية الصفحات
     keyboard = [
         [InlineKeyboardButton("📊 عرض معلومات المدرب", callback_data=f"detail_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🏆 الدوريات", callback_data=f"leagues_{manager_id}_{gameweek}"),
-         InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}")],
-        [InlineKeyboardButton("🚨 مواعيد الجولة", callback_data=f"deadline_{manager_id}_{gameweek}"),
-         InlineKeyboardButton("💰 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
-        [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data=f"fdr_{manager_id}_{gameweek}"),
-         InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
+         InlineKeyboardButton("⚽ المباريات", callback_data=f"fixtures_{manager_id}_{gameweek}"),
+        InlineKeyboardButton("🚨 مواعيد الجولة", callback_data=f"deadline_{manager_id}_{gameweek}")],
+         [InlineKeyboardButton("💰 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}"),
+        InlineKeyboardButton("🆚 صعوبة المباريات", callback_data=f"fdr_{manager_id}_{gameweek}")],
+         [InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
         [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"botleague_{manager_id}_{gameweek}_1")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
