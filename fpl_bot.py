@@ -1248,7 +1248,308 @@ def format_deadline_display(manager_id, info, gameweek):
     return response
 
 # ============================================================
-# دوال الأزرار ومعالجات البوت - المعدلة
+# دوال إحصائيات الكابتن - Captain Stats
+# ============================================================
+
+def get_captain_stats(gameweek, top_n=None):
+    """
+    جلب إحصائيات الكابتن للجولة المحددة
+    
+    Parameters:
+    - gameweek: رقم الجولة
+    - top_n: عدد المدربين الأعلى ترتيباً (None = جميع المدربين)
+    
+    Returns:
+    - قائمة باللاعبين الأكثر اختياراً ككابتن مع إحصائياتهم
+    """
+    url = f"{BASE_URL}/event/{gameweek}/live/"
+    data = safe_api_request(url, "get_captain_stats")
+    
+    if not data or "elements" not in data:
+        return []
+    
+    # جلب بيانات اللاعبين
+    players_data = get_players_dict()
+    bootstrap = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_captain_bootstrap")
+    
+    # بناء قاموس للاعبين مع بياناتهم الكاملة
+    player_full_data = {}
+    if bootstrap and "elements" in bootstrap:
+        for p in bootstrap["elements"]:
+            player_full_data[p["id"]] = {
+                "web_name": p.get("web_name", f"{p.get('first_name', '')} {p.get('second_name', '')}"),
+                "now_cost": p.get("now_cost", 0),
+                "selected_by_percent": p.get("selected_by_percent", 0),
+                "team": p.get("team", 0),
+                "element_type": p.get("element_type", 0)
+            }
+    
+    # تجميع بيانات الكابتن لكل لاعب
+    captain_stats = {}
+    
+    for element in data["elements"]:
+        player_id = element["id"]
+        stats = element.get("stats", {})
+        
+        # الحصول على عدد المرات التي تم اختيار اللاعب ككابتن
+        captain_count = 0
+        if "captain" in stats:
+            captain_count = stats["captain"].get("value", 0)
+        
+        if captain_count > 0:
+            # الحصول على نقاط اللاعب
+            points = stats.get("total_points", 0)
+            
+            # بيانات اللاعب
+            player_info = player_full_data.get(player_id, {})
+            
+            # حساب السعر
+            price = player_info.get("now_cost", 0) / 10.0
+            
+            # الملكية الإجمالية
+            ownership = player_info.get("selected_by_percent", 0)
+            
+            captain_stats[player_id] = {
+                "player_id": player_id,
+                "name": player_info.get("web_name", f"لاعب {player_id}"),
+                "captain_count": captain_count,
+                "points": points,
+                "price": price,
+                "ownership": ownership,
+                "team": player_info.get("team", 0)
+            }
+    
+    # ترتيب حسب عدد مرات الاختيار ككابتن (تنازلياً)
+    sorted_captains = sorted(
+        captain_stats.values(),
+        key=lambda x: x["captain_count"],
+        reverse=True
+    )
+    
+    # إرجاع أول 5 لاعبين فقط
+    return sorted_captains[:5]
+
+def get_players_by_rank_range(manager_ids, gameweek):
+    """
+    تصفية المدربين حسب نطاق الترتيب وجلب اختياراتهم للكابتن
+    """
+    # جلب بيانات المدربين المطلوبين
+    captains_data = {}
+    
+    for manager_id in manager_ids:
+        picks = get_manager_picks(manager_id, gameweek)
+        if picks and "picks" in picks:
+            for pick in picks["picks"]:
+                if pick.get("is_captain", False):
+                    player_id = pick.get("element")
+                    if player_id:
+                        if player_id not in captains_data:
+                            captains_data[player_id] = 0
+                        captains_data[player_id] += 1
+    
+    # تحويل إلى قائمة وترتيبها
+    if not captains_data:
+        return []
+    
+    # جلب بيانات اللاعبين الكاملة
+    players_dict = get_players_dict()
+    bootstrap = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_captain_bootstrap")
+    
+    player_full_data = {}
+    if bootstrap and "elements" in bootstrap:
+        for p in bootstrap["elements"]:
+            player_full_data[p["id"]] = {
+                "web_name": p.get("web_name", f"{p.get('first_name', '')} {p.get('second_name', '')}"),
+                "now_cost": p.get("now_cost", 0),
+                "selected_by_percent": p.get("selected_by_percent", 0),
+                "team": p.get("team", 0),
+                "element_type": p.get("element_type", 0)
+            }
+    
+    # جلب نقاط اللاعبين في الجولة
+    live_data = get_live_points(gameweek)
+    
+    # بناء القائمة النهائية
+    result = []
+    for player_id, count in captains_data.items():
+        player_info = player_full_data.get(player_id, {})
+        points = live_data.get(player_id, 0)
+        price = player_info.get("now_cost", 0) / 10.0
+        ownership = player_info.get("selected_by_percent", 0)
+        name = player_info.get("web_name", f"لاعب {player_id}")
+        
+        result.append({
+            "player_id": player_id,
+            "name": name,
+            "captain_count": count,
+            "points": points,
+            "price": price,
+            "ownership": ownership,
+            "team": player_info.get("team", 0)
+        })
+    
+    # ترتيب حسب عدد مرات الاختيار (تنازلياً)
+    result.sort(key=lambda x: x["captain_count"], reverse=True)
+    
+    return result[:5]
+
+def get_top_managers_ids(top_n):
+    """
+    جلب معرفات المدربين الأعلى ترتيباً
+    
+    Parameters:
+    - top_n: عدد المدربين المطلوب (مثل 1000, 10000, 100000)
+    
+    Returns:
+    - قائمة بمعرفات المدربين
+    """
+    # لجلب أول 1000 مدرب، نحتاج إلى استدعاء API الدوري العالمي
+    # نستخدم league API مع ID=1 (الدوري العام)
+    global_league_id = 1
+    manager_ids = []
+    
+    page = 1
+    while len(manager_ids) < top_n:
+        url = f"{BASE_URL}/leagues-classic/{global_league_id}/standings/?page_standings={page}"
+        data = safe_api_request(url, "get_top_managers")
+        
+        if not data or "standings" not in data:
+            break
+        
+        results = data["standings"].get("results", [])
+        if not results:
+            break
+        
+        for entry in results:
+            manager_ids.append(entry.get("entry"))
+            if len(manager_ids) >= top_n:
+                break
+        
+        page += 1
+    
+    return manager_ids[:top_n]
+
+def get_captain_stats_by_rank_range(rank_min, rank_max, gameweek):
+    """
+    جلب إحصائيات الكابتن لنطاق ترتيب معين
+    
+    Parameters:
+    - rank_min: الحد الأدنى للترتيب
+    - rank_max: الحد الأقصى للترتيب
+    - gameweek: رقم الجولة
+    
+    Returns:
+    - قائمة بأكثر 5 لاعبين اختياراً ككابتن في هذا النطاق
+    """
+    # جلب معرفات المدربين في النطاق المطلوب
+    # نستخدم league API للحصول على المدربين حسب ترتيبهم
+    
+    # الدوري العام ID = 1
+    global_league_id = 1
+    manager_ids = []
+    
+    page = 1
+    while len(manager_ids) < rank_max:
+        url = f"{BASE_URL}/leagues-classic/{global_league_id}/standings/?page_standings={page}"
+        data = safe_api_request(url, "get_rank_range_managers")
+        
+        if not data or "standings" not in data:
+            break
+        
+        results = data["standings"].get("results", [])
+        if not results:
+            break
+        
+        for entry in results:
+            current_rank = entry.get("rank", 0)
+            if rank_min <= current_rank <= rank_max:
+                manager_ids.append(entry.get("entry"))
+            elif current_rank > rank_max:
+                # إذا تجاوزنا الحد الأقصى، نوقف البحث
+                break
+        
+        # التحقق من أننا لم نتجاوز الحد المطلوب
+        page += 1
+        
+        # إذا كان عدد النتائج أقل من 50، نكون وصلنا للنهاية
+        if len(results) < 50:
+            break
+    
+    # إذا لم نجد مدربين كافيين
+    if not manager_ids:
+        return []
+    
+    # جلب اختيارات الكابتن لهؤلاء المدربين
+    return get_players_by_rank_range(manager_ids, gameweek)
+
+def format_captain_stats_display(manager_id, info, gameweek, captain_stats, title, rank_range_desc):
+    """
+    تنسيق عرض إحصائيات الكابتن
+    """
+    name = sanitize_markdown(safe_str(info.get("name")))
+    
+    now_mecca = datetime.now(timezone.utc) + timedelta(hours=3)
+    update_time = now_mecca.strftime("%I:%M %p").lstrip('0').lower()
+    update_date = now_mecca.strftime("%d/%m/%Y")
+    
+    response = (
+        f"👑 **إحصائيات الكابتن**\n"
+        f"📊 **{title}**\n"
+        f"👤 {name}\n"
+        f"🗓 **الجولة {gameweek}**\n"
+        f"📌 **الفئة:** {rank_range_desc}\n"
+        f"🕐 آخر تحديث: {update_time} - {update_date} (توقيت مكة)\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+    )
+    
+    if not captain_stats:
+        response += "🚫 لا توجد بيانات كافية لهذه الفئة حالياً.\n"
+        return response
+    
+    # عرض اللاعبين
+    response += "🏅 **أكثر 5 لاعبين اختياراً ككابتن:**\n\n"
+    
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+    for idx, player in enumerate(captain_stats):
+        medal = medals[idx] if idx < len(medals) else f"{idx+1}."
+        p_name = sanitize_markdown(player.get("name", "لاعب غير معروف"))
+        count = player.get("captain_count", 0)
+        points = player.get("points", 0)
+        price = player.get("price", 0)
+        ownership = player.get("ownership", 0)
+        
+        response += (
+            f"{medal} **{p_name}**\n"
+            f"   👥 عدد التكرارات: **{count:,}**\n"
+            f"   ⭐ نقاط الجولة: **{points}**\n"
+            f"   💰 السعر: **£{price:.1f}M**\n"
+            f"   📊 الملكية: **{ownership:.1f}%**\n\n"
+        )
+    
+    response += "━━━━━━━━━━━━━━━━━━━━━\n"
+    response += f"📊 إجمالي اللاعبين المعروضين: {len(captain_stats)} لاعب"
+    
+    return response
+
+def get_captain_keyboard(manager_id, gameweek):
+    """
+    إنشاء أزرار إحصائيات الكابتن الفرعية
+    """
+    keyboard = [
+        [InlineKeyboardButton("🌍 العالمي (جميع المدربين)", callback_data=f"captain_{manager_id}_{gameweek}_all")],
+        [InlineKeyboardButton("🏆 أعلى 1,000 مدرب", callback_data=f"captain_{manager_id}_{gameweek}_1000")],
+        [InlineKeyboardButton("🏆 أعلى 10,000 مدرب", callback_data=f"captain_{manager_id}_{gameweek}_10000")],
+        [InlineKeyboardButton("🏆 أعلى 100,000 مدرب", callback_data=f"captain_{manager_id}_{gameweek}_100000")],
+        [InlineKeyboardButton("🏆 أعلى 500,000 مدرب", callback_data=f"captain_{manager_id}_{gameweek}_500000")],
+        [InlineKeyboardButton("🏆 أعلى 1,000,000 مدرب", callback_data=f"captain_{manager_id}_{gameweek}_1000000")],
+        [InlineKeyboardButton("📊 ترتيب 1-3 مليون", callback_data=f"captain_{manager_id}_{gameweek}_1_3m")],
+        [InlineKeyboardButton("📊 ترتيب 3-6 مليون", callback_data=f"captain_{manager_id}_{gameweek}_3_6m")],
+        [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# ============================================================
+# دوال الأزرار ومعالجات البوت 
 # ============================================================
 
 def get_custom_league_standings(page=1):
@@ -1385,7 +1686,6 @@ def get_fdr_keyboard(manager_id, gameweek):
     return InlineKeyboardMarkup(keyboard)
 
 def get_buttons(manager_id, gameweek, current_view):
-    """أزرار القائمة الرئيسية - معدلة لتشمل زر دوري البوت"""
     next_gw = get_next_gameweek(gameweek)
     prev_gw = get_previous_gameweek(gameweek)
 
@@ -1397,12 +1697,12 @@ def get_buttons(manager_id, gameweek, current_view):
          InlineKeyboardButton("💰 أسعار اللاعبين", callback_data=f"price_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("🆚 صعوبة المباريات", callback_data=f"fdr_{manager_id}_{gameweek}"),
          InlineKeyboardButton("👥 جميع اللاعبين", callback_data=f"players_{manager_id}_{gameweek}_0")],
-        [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"botleague_{manager_id}_{gameweek}_1")],
+        [InlineKeyboardButton("🤖 دوري البوت", callback_data=f"botleague_{manager_id}_{gameweek}_1"),
+         InlineKeyboardButton("👑 إحصائيات القادة", callback_data=f"captain_main_{manager_id}_{gameweek}")],
         [InlineKeyboardButton("⬅️ الجولة السابقة", callback_data=f"nav_{manager_id}_{prev_gw}"),
          InlineKeyboardButton("➡️ الجولة التالية", callback_data=f"nav_{manager_id}_{next_gw}")]
     ]
-    return InlineKeyboardMarkup(keyboard)
-    
+    return InlineKeyboardMarkup(keyboard)    
 def get_subscription_button():
     """إنشاء أزرار الانضمام للقنوات الإجبارية وزر التحقق"""
     keyboard = []
@@ -2247,8 +2547,9 @@ def format_price_changes_display(manager_id, info, gameweek):
     return response
     
 # ============================================================
-# معالج الأزرار (Callback) المعدل
+# معالج الأزرار (Callback) 
 # ============================================================
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     try:
@@ -2342,6 +2643,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
+        # ============================================================
+        # معالج دوري البوت
+        # ============================================================
         if parts[0] == "botleague":
             gameweek = int(parts[2])
             page = int(parts[3]) if len(parts) > 3 else 1
@@ -2362,14 +2666,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as parse_error:
                 logger.error(f"Markdown Parse Error: {parse_error}")
-                # في حال وجود خطأ في رموز التنسيق، يتم الإرسال بدون parse_mode لتجنب توقف البوت
                 clean_text = text.replace("**", "").replace("`", "")
                 await context.bot.edit_message_text(
                     text=clean_text, chat_id=chat_id, message_id=message_id,
                     reply_markup=reply_markup, disable_web_page_preview=True
                 )
             return
-            
+
+        # ============================================================
+        # معالج قائمة المراكز
+        # ============================================================
         elif parts[0] == "poslist":
             gameweek = int(parts[2])
             await context.bot.edit_message_text(
@@ -2380,6 +2686,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج عرض اللاعبين حسب المركز
+        # ============================================================
         elif parts[0] == "posview":
             gameweek = int(parts[2])
             pos_id = int(parts[3])
@@ -2403,6 +2712,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج قائمة الفرق
+        # ============================================================
         elif parts[0] == "teamslist":
             gameweek = int(parts[2])
             await context.bot.edit_message_text(
@@ -2413,6 +2725,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج عرض لاعبي فريق معين
+        # ============================================================
         elif parts[0] == "teamview":
             gameweek = int(parts[2])
             team_id = int(parts[3])
@@ -2432,6 +2747,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج قائمة جميع اللاعبين
+        # ============================================================
         elif parts[0] == "players":
             gameweek = int(parts[2])
 
@@ -2470,6 +2788,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج قائمة المباريات
+        # ============================================================
         elif parts[0] == "fixtures":
             gameweek = int(parts[2])
             text = format_fixtures_menu(gameweek)
@@ -2481,6 +2802,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج تفاصيل المباراة
+        # ============================================================
         elif parts[0] == "match":
             gameweek = int(parts[2])
             fixture_id = int(parts[3])
@@ -2503,6 +2827,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج صعوبة المباريات (FDR)
+        # ============================================================
         elif parts[0] == "fdr":
             gameweek = int(parts[2])
             
@@ -2528,6 +2855,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج التنقل بين الجولات
+        # ============================================================
         elif parts[0] == "nav":
             gameweek = int(parts[2])
             current_text = query.message.text or ""
@@ -2592,7 +2922,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        elif parts[0] in ["detail", "leagues", "deadline", "price", "fdr"]:
+        # ============================================================
+        # المعالجات الرئيسية (detail, leagues, deadline, price)
+        # ============================================================
+        elif parts[0] in ["detail", "leagues", "deadline", "price"]:
             view_type = parts[0]
             gameweek = int(parts[2])
 
@@ -2600,8 +2933,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "detail": "عرض معلومات المدرب",
                 "leagues": "الدوريات والمواسم",
                 "deadline": "مواعيد الجولة",
-                "price": "توقعات وتغيرات الأسعار",
-                "fdr": "جدول صعوبة المباريات"
+                "price": "توقعات وتغيرات الأسعار"
             }
 
             await context.bot.edit_message_text(
@@ -2617,15 +2949,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-            if view_type == "fdr":
-                text = format_fdr_display(manager_id, info, gameweek)
-                reply_markup = get_fdr_keyboard(manager_id, gameweek)
-                await context.bot.edit_message_text(
-                    text=text, chat_id=chat_id, message_id=message_id,
-                    parse_mode='Markdown', reply_markup=reply_markup
-                )
-                return
-            elif view_type == "deadline":
+            if view_type == "deadline":
                 text = format_deadline_display(manager_id, info, gameweek)
             elif view_type == "price":
                 text = format_price_changes_display(manager_id, info, gameweek)
@@ -2643,6 +2967,113 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # ============================================================
+        # معالج إحصائيات الكابتن - القائمة الرئيسية
+        # ============================================================
+        elif parts[0] == "captain_main":
+            gameweek = int(parts[2])
+            await context.bot.edit_message_text(
+                text=f"👑 **إحصائيات الكابتن**\n📊 **الجولة {gameweek}**\n━━━━━━━━━━━━━━━━━━━━━\n\n"
+                     f"اختر الفئة المطلوبة لعرض أكثر 5 لاعبين اختياراً ككابتن:\n\n"
+                     f"🌍 **العالمي:** جميع المدربين في اللعبة\n"
+                     f"🏆 **النخبة:** المدربين الأوائل حسب الترتيب\n"
+                     f"📊 **الفئات:** نطاقات ترتيب محددة",
+                chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown',
+                reply_markup=get_captain_keyboard(manager_id, gameweek)
+            )
+            return
+
+        # ============================================================
+        # معالج إحصائيات الكابتن - عرض البيانات حسب الفئة
+        # ============================================================
+        elif parts[0] == "captain":
+            gameweek = int(parts[2])
+            category = parts[3]
+            
+            await context.bot.edit_message_text(
+                text="🔄 جاري تحميل إحصائيات الكابتن...",
+                chat_id=chat_id, message_id=message_id, reply_markup=None
+            )
+            
+            info = get_manager_info(manager_id)
+            if not info:
+                await context.bot.edit_message_text(
+                    text=f"❌ لم أتمكن من العثور على مدرب بالمعرف `{manager_id}`.",
+                    chat_id=chat_id, message_id=message_id, parse_mode='Markdown'
+                )
+                return
+            
+            # تحديد الفئة وجلب البيانات
+            if category == "all":
+                # جميع المدربين (بيانات من API مباشرة)
+                captain_stats = get_captain_stats(gameweek)
+                title = "🌍 جميع المدربين"
+                rank_desc = "جميع مدربي اللعبة"
+                
+            elif category == "1000":
+                manager_ids = get_top_managers_ids(1000)
+                captain_stats = get_players_by_rank_range(manager_ids, gameweek)
+                title = "🏆 أعلى 1,000 مدرب"
+                rank_desc = "أول 1,000 مدرب في الترتيب العالمي"
+                
+            elif category == "10000":
+                manager_ids = get_top_managers_ids(10000)
+                captain_stats = get_players_by_rank_range(manager_ids, gameweek)
+                title = "🏆 أعلى 10,000 مدرب"
+                rank_desc = "أول 10,000 مدرب في الترتيب العالمي"
+                
+            elif category == "100000":
+                manager_ids = get_top_managers_ids(100000)
+                captain_stats = get_players_by_rank_range(manager_ids, gameweek)
+                title = "🏆 أعلى 100,000 مدرب"
+                rank_desc = "أول 100,000 مدرب في الترتيب العالمي"
+                
+            elif category == "500000":
+                manager_ids = get_top_managers_ids(500000)
+                captain_stats = get_players_by_rank_range(manager_ids, gameweek)
+                title = "🏆 أعلى 500,000 مدرب"
+                rank_desc = "أول 500,000 مدرب في الترتيب العالمي"
+                
+            elif category == "1000000":
+                manager_ids = get_top_managers_ids(1000000)
+                captain_stats = get_players_by_rank_range(manager_ids, gameweek)
+                title = "🏆 أعلى 1,000,000 مدرب"
+                rank_desc = "أول 1,000,000 مدرب في الترتيب العالمي"
+                
+            elif category == "1_3m":
+                captain_stats = get_captain_stats_by_rank_range(1000000, 3000000, gameweek)
+                title = "📊 ترتيب 1-3 مليون"
+                rank_desc = "المدربين بين الترتيب 1,000,000 و 3,000,000"
+                
+            elif category == "3_6m":
+                captain_stats = get_captain_stats_by_rank_range(3000000, 6000000, gameweek)
+                title = "📊 ترتيب 3-6 مليون"
+                rank_desc = "المدربين بين الترتيب 3,000,000 و 6,000,000"
+                
+            else:
+                captain_stats = []
+                title = "غير معروف"
+                rank_desc = "فئة غير معروفة"
+            
+            # تنسيق وعرض النتائج
+            text = format_captain_stats_display(
+                manager_id, info, gameweek,
+                captain_stats, title, rank_desc
+            )
+            
+            # إضافة أزرار العودة
+            reply_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 العودة لقائمة الكابتن", callback_data=f"captain_main_{manager_id}_{gameweek}")],
+                [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data=f"detail_{manager_id}_{gameweek}")]
+            ])
+            
+            await context.bot.edit_message_text(
+                text=text, chat_id=chat_id, message_id=message_id,
+                parse_mode='Markdown', reply_markup=reply_markup
+            )
+            return
+
     except Exception as e:
         logger.error(f"خطأ في معالجة callback: {e}")
         try:
@@ -2652,7 +3083,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as edit_error:
             logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
-
 
 # ============================================================
 # قسم تعليمات البوت
