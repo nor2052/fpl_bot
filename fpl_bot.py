@@ -2971,7 +2971,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # معالج إحصائيات الكابتن - القائمة الرئيسية
         # ============================================================
         elif parts[0] == "captain_main":
+            # parts[1] = manager_id, parts[2] = gameweek
+            manager_id = parts[1]
             gameweek = int(parts[2])
+            
             await context.bot.edit_message_text(
                 text=f"👑 **إحصائيات الكابتن**\n📊 **الجولة {gameweek}**\n━━━━━━━━━━━━━━━━━━━━━\n\n"
                      f"اختر الفئة المطلوبة لعرض أكثر 5 لاعبين اختياراً ككابتن:\n\n"
@@ -2988,6 +2991,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # معالج إحصائيات الكابتن - عرض البيانات حسب الفئة
         # ============================================================
         elif parts[0] == "captain":
+            # parts[1] = manager_id, parts[2] = gameweek, parts[3] = category
+            manager_id = parts[1]
             gameweek = int(parts[2])
             category = parts[3]
             
@@ -2995,6 +3000,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="🔄 جاري تحميل إحصائيات الكابتن...",
                 chat_id=chat_id, message_id=message_id, reply_markup=None
             )
+            
             
             info = get_manager_info(manager_id)
             if not info:
