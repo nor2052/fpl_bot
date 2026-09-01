@@ -1640,6 +1640,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
+    # تجاهل الرسائل العادية في المجموعات
+    if update.message.chat.type in ["group", "supergroup"]:
+        text = update.message.text.strip()
+        # إذا كانت تبدأ بـ / فهي أمر وسيتعامل معها CommandHandler
+        if text.startswith('/'):
+            return
+        # إذا احتوت على @ اسم البوت فهي أمر موجه للبوت
+        bot_username = (await context.bot.get_me()).username
+        if f'@{bot_username}' in text:
+            return
+        # رسالة عادية - تجاهل
+        return
+
     message_text = update.message.text.strip()
     user_id = update.effective_user.id
 
@@ -3016,7 +3029,24 @@ async def cmd_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    command = update.message.text.split()[0].replace('/', '').lower()
+    # 3. استخراج الأمر بشكل صحيح مع دعم @ (للمجموعات)
+    full_text = update.message.text.strip()
+    command_part = full_text.split()[0].replace('/', '').lower()
+    
+    # إزالة الجزء بعد @ إن وجد (مثل /manager@FantasyPremierBot -> manager)
+    if '@' in command_part:
+        command = command_part.split('@')[0]
+    else:
+        command = command_part
+
+    # 4. التحقق من أن هذا الأمر مدرج في قائمة الأوامر المدعومة
+    # إذا لم يكن الأمر معروفاً، نتجاهل الرسالة (لن نرد عليها)
+    supported_commands = ["manager", "matches", "deadline", "han_bot_league", 
+                          "players", "leagues", "prices", "fdr"]
+    if command not in supported_commands:
+        # في المجموعات، لا نرد على أوامر غير مدعومة أو رسائل عادية
+        return
+
     gw = current_gameweek
     info = get_manager_info(manager_id)
 
@@ -3024,7 +3054,7 @@ async def cmd_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ لم يتم العثور على بيانات المدرب.")
         return
 
-    # 3. توجيه التعليمة للخدمة المطلوبة وإرسال القائمة الرئيسية معها
+    # 5. توجيه التعليمة للخدمة المطلوبة وإرسال القائمة الرئيسية معها
     if command == "manager":
         picks_data = get_manager_picks(manager_id, gw)
         history = get_manager_history(manager_id)
@@ -3082,34 +3112,58 @@ current_gameweek = get_current_gameweek()
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # تسجيل تعليمات الأزرار
+    # ============================================================
+    # تسجيل تعليمات الأزرار (تدعم الأوامر مع @ في المجموعات)
+    # ============================================================
     menu_commands = [
         "manager", "matches", "deadline", "han_bot_league",
         "players", "leagues", "prices", "fdr"
     ]
     application.add_handler(CommandHandler(menu_commands, cmd_button_handler))
-
-    # بقية الهاندلرات الأساسية
+    
+    # ============================================================
+    # الأوامر الأساسية
+    # ============================================================
     application.add_handler(CommandHandler("start", handle_message))
     application.add_handler(CommandHandler("help", handle_message))
     application.add_handler(CommandHandler("admin", handle_admin_command))
-    application.add_handler(InlineQueryHandler(inline_query))
-
     
+    # ============================================================
+    # Inline Mode
+    # ============================================================
+    application.add_handler(InlineQueryHandler(inline_query))
+    
+    # ============================================================
+    # معالج الإعلانات (للأدمن فقط) - يعمل في جميع أنواع المحادثات
+    # ============================================================
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ad_message),
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND, 
+            handle_ad_message
+        ),
         group=1
     )
     
+    # ============================================================
+    # معالج الرسائل العامة - يعمل فقط في المحادثات الخاصة (Private)
+    # لمنع البوت من الرد على الرسائل العادية في المجموعات
+    # ============================================================
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, 
+            handle_message
+        ),
         group=2
     )
     
+    # ============================================================
+    # معالج الأزرار (Callback Query)
+    # ============================================================
     application.add_handler(CallbackQueryHandler(handle_callback))
 
-
-
+    # ============================================================
+    # طباعة معلومات التشغيل
+    # ============================================================
     print("=" * 50)
     print("🤖 البوت يعمل الآن (نسخة معدلة - عرض واحد فقط + مواعيد الجولة)")
     print(f"📅 آخر جولة لعبت: {current_gameweek}")
@@ -3121,10 +3175,12 @@ def main():
     print("   • مواعيد الجولة (الديدلاين) ⏰")
     print("   • توقيت مكة المكرمة حصراً")
     print("   • نظام الاشتراك الإجباري في القنوات")
+    print("   • دعم الأوامر في المجموعات (@اسم_البوت)")
     print("📡 أرسل معرف مدرب للبدء")
     print("=" * 50)
 
     application.run_polling()
+
 
 if __name__ == '__main__':
     main()
