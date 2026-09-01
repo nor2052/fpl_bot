@@ -631,7 +631,7 @@ def get_next_gameweek(current_gw):
 
 def get_previous_gameweek(current_gw):
     return current_gw - 1 if current_gw > 1 else 38
-
+    
 def format_match_time(kickoff_time):
     if not kickoff_time:
         return "توقيت غير محدد"
@@ -2885,7 +2885,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-            if view_type == "fdr":
+            if view_type == "deadline":
+                text = format_deadline_display(manager_id, info, gameweek)
+                reply_markup = get_buttons(manager_id, gameweek, "deadline")
+            elif view_type == "fdr":
                 text = format_fdr_display(manager_id, info, gameweek)
                 reply_markup = get_fdr_keyboard(manager_id, gameweek)
                 await context.bot.edit_message_text(
@@ -2893,8 +2896,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='Markdown', reply_markup=reply_markup
                 )
                 return
-            elif view_type == "deadline":
-                text = format_deadline_display(manager_id, info, gameweek)
             elif view_type == "price":
                 text = format_price_changes_display(manager_id, info, gameweek)
                 reply_markup = get_buttons(manager_id, gameweek, "price")
@@ -2914,14 +2915,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif view_type == "leagues":
                 history = get_manager_history(manager_id)
                 text = format_leagues_display(manager_id, info, gameweek, history)
+                reply_markup = get_buttons(manager_id, gameweek, "leagues")
             else:
                 picks_data = get_manager_picks(manager_id, gameweek)
                 history = get_manager_history(manager_id)
                 text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
+                reply_markup = get_buttons(manager_id, gameweek, "detail")
 
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
+                parse_mode='Markdown', reply_markup=reply_markup
             )
             return
 
@@ -2961,9 +2964,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 history = get_manager_history(manager_id)
                 text = format_detailed_display(manager_id, info, gameweek, picks_data, history)
 
+            reply_markup = get_buttons(manager_id, gameweek, view_type)
+
             await context.bot.edit_message_text(
                 text=text, chat_id=chat_id, message_id=message_id,
-                parse_mode='Markdown', reply_markup=get_buttons(manager_id, gameweek, view_type)
+                parse_mode='Markdown', reply_markup=reply_markup
             )
             return
             
@@ -2976,7 +2981,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as edit_error:
             logger.error(f"فشل في إرسال رسالة الخطأ: {edit_error}")
-
+            
 # ============================================================
 # قسم تعليمات البوت
 # ============================================================
