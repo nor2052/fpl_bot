@@ -1253,81 +1253,59 @@ def format_deadline_display(manager_id, info, gameweek):
 
 def get_captain_stats(gameweek, top_n=None):
     """
-    جلب إحصائيات الكابتن للجولة المحددة
-    
-    Parameters:
-    - gameweek: رقم الجولة
-    - top_n: عدد المدربين الأعلى ترتيباً (None = جميع المدربين)
-    
-    Returns:
-    - قائمة باللاعبين الأكثر اختياراً ككابتن مع إحصائياتهم
+    جلب إحصائيات الكابتن للجولة المحددة بطريقة صحيحة وآمنة
     """
-    url = f"{BASE_URL}/event/{gameweek}/live/"
-    data = safe_api_request(url, "get_captain_stats")
-    
-    if not data or "elements" not in data:
-        return []
-    
-    # جلب بيانات اللاعبين
-    players_data = get_players_dict()
+    # لجلب إحصائيات الكباتن بشكل دقيق، نعتمد على فحص عينة أو المانجر الحالي أو الدوري العام
+    # كحل دقيق ومباشر لتجنب أخطاء الـ API المباشر للعبة، نقوم بجلب المدربين الأوائل أو استخدام بيانات bootstrap
     bootstrap = safe_api_request(f"{BASE_URL}/bootstrap-static/", "get_captain_bootstrap")
-    
-    # بناء قاموس للاعبين مع بياناتهم الكاملة
+    if not bootstrap or "elements" not in bootstrap:
+        return []
+
     player_full_data = {}
-    if bootstrap and "elements" in bootstrap:
-        for p in bootstrap["elements"]:
-            player_full_data[p["id"]] = {
-                "web_name": p.get("web_name", f"{p.get('first_name', '')} {p.get('second_name', '')}"),
-                "now_cost": p.get("now_cost", 0),
-                "selected_by_percent": p.get("selected_by_percent", 0),
-                "team": p.get("team", 0),
-                "element_type": p.get("element_type", 0)
-            }
+    for p in bootstrap["elements"]:
+        player_full_data[p["id"]] = {
+            "web_name": p.get("web_name", f"{p.get('first_name', '')} {p.get('second_name', '')}"),
+            "now_cost": p.get("now_cost", 0),
+            "selected_by_percent": p.get("selected_by_percent", 0),
+            "team": p.get("team", 0),
+            "element_type": p.get("element_type", 0)
+        }
+
+    live_data = get_live_points(gameweek)
     
-    # تجميع بيانات الكابتن لكل لاعب
-    captain_stats = {}
+    # لجلب إحصائيات واقعية، نأخذ عينة من الترتيب العام أو الدوري الرئيسي
+    top_manager_ids = get_top_managers_ids(500)  # عينة من أول 500 مدرب لتجنب الضغط
+    captain_counts = {}
+
+    for m_id in top_manager_ids:
+        picks_data = get_manager_picks(m_id, gameweek)
+        if picks_data and "picks" in picks_data:
+            for pick in picks_data["picks"]:
+                if pick.get("is_captain", False):
+                    p_id = pick.get("element")
+                    captain_counts[p_id] = captain_counts.get(p_id, 0) + 1
+
+    sorted_caps = sorted(captain_counts.items(), key=lambda x: x[1], reverse=True)
     
-    for element in data["elements"]:
-        player_id = element["id"]
-        stats = element.get("stats", {})
-        
-        # الحصول على عدد المرات التي تم اختيار اللاعب ككابتن
-        captain_count = 0
-        if "captain" in stats:
-            captain_count = stats["captain"].get("value", 0)
-        
-        if captain_count > 0:
-            # الحصول على نقاط اللاعب
-            points = stats.get("total_points", 0)
-            
-            # بيانات اللاعب
-            player_info = player_full_data.get(player_id, {})
-            
-            # حساب السعر
-            price = player_info.get("now_cost", 0) / 10.0
-            
-            # الملكية الإجمالية
-            ownership = player_info.get("selected_by_percent", 0)
-            
-            captain_stats[player_id] = {
-                "player_id": player_id,
-                "name": player_info.get("web_name", f"لاعب {player_id}"),
-                "captain_count": captain_count,
-                "points": points,
-                "price": price,
-                "ownership": ownership,
-                "team": player_info.get("team", 0)
-            }
-    
-    # ترتيب حسب عدد مرات الاختيار ككابتن (تنازلياً)
-    sorted_captains = sorted(
-        captain_stats.values(),
-        key=lambda x: x["captain_count"],
-        reverse=True
-    )
-    
-    # إرجاع أول 5 لاعبين فقط
-    return sorted_captains[:5]
+    result = []
+    for p_id, count in sorted_caps[:5]:
+        p_info = player_full_data.get(p_id, {})
+        points = live_data.get(p_id, 0)
+        price = p_info.get("now_cost", 0) / 10.0
+        ownership = p_info.get("selected_by_percent", 0)
+        name = p_info.get("web_name", f"لاعب {p_id}")
+
+        result.append({
+            "player_id": p_id,
+            "name": name,
+            "captain_count": count,
+            "points": points,
+            "price": price,
+            "ownership": ownership,
+            "team": p_info.get("team", 0)
+        })
+
+    return result
 
 def get_players_by_rank_range(manager_ids, gameweek):
     """
