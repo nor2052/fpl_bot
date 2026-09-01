@@ -229,6 +229,10 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     picks_data = get_manager_picks(manager_id, gameweek)
     history = get_manager_history(manager_id)
     
+    # جلب متوسط نقاط الجولة
+    gw_stats = get_gameweek_stats(gameweek)
+    avg_points = gw_stats.get("average_score", 0)
+    
     # ============================================================
     # صياغة الرد المطلوب (المعلومات الأساسية فقط - بدون أزرار)
     # ============================================================
@@ -292,13 +296,14 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rank_change_display = get_rank_change_display(manager_id, gameweek, history)
     
     # ============================================================
-    # بناء الرد النهائي (بدون أزرار)
+    # بناء الرد النهائي (مع إضافة متوسط النقاط)
     # ============================================================
     response = (
         f"🎮 **فريق {name}**\n"
         f"🆔 `{manager_id}` | 📊 **جولة {gameweek}**\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"⭐️ نقاط الجولة: **{event_points_after_hits}**\n"
+        f"🌍 متوسط الجولة: **{avg_points}**\n"
         f"🏆 النقاط الكلية: **{total_points:,}**\n"
         f"📈 الترتيب العالمي: **{rank_str}**{rank_change_display}\n"
         f"📊 ترتيب الجولة: **{event_rank_str}**\n"
@@ -327,7 +332,7 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineQueryResultArticle(
             id=str(manager_id),
             title=f"🎮 {name} | {total_points} نقطة",
-            description=f"الترتيب: #{rank_str} | نقاط الجولة: {event_points_after_hits}",
+            description=f"الترتيب: #{rank_str} | نقاط الجولة: {event_points_after_hits} | المتوسط: {avg_points}",
             input_message_content=InputTextMessageContent(
                 response,
                 parse_mode='Markdown'
@@ -337,7 +342,6 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     
     await update.inline_query.answer(results, cache_time=60)  # تخزين مؤقت لمدة 60 ثانية
-
 
 # ============================================================
 # دالة مساعدة للحصول على نقاط القائد (إضافية)
