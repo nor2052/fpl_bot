@@ -3162,6 +3162,10 @@ async def cmd_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text = format_fdr_display(manager_id, info, gw)
         reply_markup = get_fdr_keyboard(manager_id, gw)
 
+    elif command == "captaincy":
+        text = f"👑 **إحصائيات الكابتن**\n📊 **الجولة {gw}**\n━━━━━━━━━━━━━━━━━━━━━\n\nاختر الفئة المطلوبة لعرض أكثر 5 لاعبين اختياراً ككابتن:"
+        reply_markup = get_captain_keyboard(manager_id, gw)
+
     else:
         return
 
@@ -3171,7 +3175,7 @@ async def cmd_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup=reply_markup,
         disable_web_page_preview=True
     )
-
+    
 # ============================================================
 # تشغيل البوت
 # ============================================================
@@ -3185,7 +3189,7 @@ def main():
     # تسجيل تعليمات الأزرار
     menu_commands = [
         "manager", "matches", "deadline", "han_bot_league",
-        "players", "leagues", "prices", "fdr"
+        "players", "leagues", "prices", "fdr", "captaincy"
     ]
     application.add_handler(CommandHandler(menu_commands, cmd_button_handler))
 
